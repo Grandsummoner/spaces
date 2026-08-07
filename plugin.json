@@ -1,0 +1,18 @@
+{
+  "slug": "Spaces",
+  "name": "Spaces",
+  "version": "2.0.0",
+  "license": "GPL-3.0-or-later",
+  "author": "Grandsummoner",
+  "authorUrl": "https://github.com/Grandsummoner",
+  "pluginUrl": "https://github.com/Grandsummoner/spaces",
+  "sourceUrl": "https://github.com/Grandsummoner/spaces",
+  "modules": [
+    {
+      "slug": "NavyArp2",
+      "name": "Navy Arp 2",
+      "description": "Dual-scene probabilistic arpeggiator/sequencer with built-in dual synth voices, LFO modulation, and morphing scene crossfade.",
+      "tags": ["Sequencer", "Oscillator", "Polyphonic", "Random"]
+    }
+  ]
+}
