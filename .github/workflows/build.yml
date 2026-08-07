@@ -1,0 +1,39 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  rack-sdk-version: latest
+  rack-plugin-toolchain-version: latest
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+          - platform: mac
+            os: ubuntu-latest
+          - platform: win
+            os: ubuntu-latest
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build plugin
+        uses: VCVRack/rack-plugin-toolchain-action@v1
+        with:
+          platform: ${{ matrix.platform }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-plugin
+          path: plugin-build/*.vcvplugin
