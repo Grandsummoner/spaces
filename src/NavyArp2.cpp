@@ -473,70 +473,70 @@ struct NavyArp2Widget : ModuleWidget {
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/NavyArp2.svg")));
 
 // STEPS: probability faders + step lights
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(10.00, 35)), module, NavyArp2::STEP_LIGHTS + 0));
-		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(10.00, 26)), module, NavyArp2::FADER_PARAM + 0));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(30.37, 35)), module, NavyArp2::STEP_LIGHTS + 1));
-		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(30.37, 26)), module, NavyArp2::FADER_PARAM + 1));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(50.73, 35)), module, NavyArp2::STEP_LIGHTS + 2));
-		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(50.73, 26)), module, NavyArp2::FADER_PARAM + 2));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(71.10, 35)), module, NavyArp2::STEP_LIGHTS + 3));
-		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(71.10, 26)), module, NavyArp2::FADER_PARAM + 3));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(91.46, 35)), module, NavyArp2::STEP_LIGHTS + 4));
-		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(91.46, 26)), module, NavyArp2::FADER_PARAM + 4));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(111.83, 35)), module, NavyArp2::STEP_LIGHTS + 5));
-		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(111.83, 26)), module, NavyArp2::FADER_PARAM + 5));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(132.19, 35)), module, NavyArp2::STEP_LIGHTS + 6));
-		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(132.19, 26)), module, NavyArp2::FADER_PARAM + 6));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(152.56, 35)), module, NavyArp2::STEP_LIGHTS + 7));
-		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(152.56, 26)), module, NavyArp2::FADER_PARAM + 7));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(10.0, 19.1)), module, NavyArp2::STEP_LIGHTS + 0));
+		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(10.0, 27.0)), module, NavyArp2::FADER_PARAM + 0));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(30.37, 19.1)), module, NavyArp2::STEP_LIGHTS + 1));
+		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(30.37, 27.0)), module, NavyArp2::FADER_PARAM + 1));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(50.73, 19.1)), module, NavyArp2::STEP_LIGHTS + 2));
+		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(50.73, 27.0)), module, NavyArp2::FADER_PARAM + 2));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(71.1, 19.1)), module, NavyArp2::STEP_LIGHTS + 3));
+		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(71.1, 27.0)), module, NavyArp2::FADER_PARAM + 3));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(91.46, 19.1)), module, NavyArp2::STEP_LIGHTS + 4));
+		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(91.46, 27.0)), module, NavyArp2::FADER_PARAM + 4));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(111.83, 19.1)), module, NavyArp2::STEP_LIGHTS + 5));
+		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(111.83, 27.0)), module, NavyArp2::FADER_PARAM + 5));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(132.19, 19.1)), module, NavyArp2::STEP_LIGHTS + 6));
+		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(132.19, 27.0)), module, NavyArp2::FADER_PARAM + 6));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(152.56, 19.1)), module, NavyArp2::STEP_LIGHTS + 7));
+		addParam(createParamCentered<RoundBigBlackKnob>(mm2px(Vec(152.56, 27.0)), module, NavyArp2::FADER_PARAM + 7));
 
-		// MACRO knobs
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(10.00, 60)), module, NavyArp2::REST_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(23.00, 60)), module, NavyArp2::LEGATO_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(36.00, 60)), module, NavyArp2::RATE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(49.00, 60)), module, NavyArp2::ENTROPY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(62.00, 60)), module, NavyArp2::HARMONY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(75.00, 60)), module, NavyArp2::CHAOS_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(88.00, 60)), module, NavyArp2::OCTAVES_PARAM));
+		// MACRO
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(10.0, 49.77)), module, NavyArp2::REST_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(23.22, 49.77)), module, NavyArp2::LEGATO_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(36.44, 49.77)), module, NavyArp2::RATE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(49.66, 49.77)), module, NavyArp2::ENTROPY_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(62.88, 49.77)), module, NavyArp2::HARMONY_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(76.1, 49.77)), module, NavyArp2::CHAOS_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(89.32, 49.77)), module, NavyArp2::OCTAVES_PARAM));
 
 		// SCENE / MODE
-		addParam(createParamCentered<CKD6>(mm2px(Vec(100.00, 60)), module, NavyArp2::SCENE_A_PARAM));
-		addChild(createLightCentered<SmallLight<GreenLight>>(mm2px(Vec(97.00, 55.00)), module, NavyArp2::SCENE_A_LIGHT));
-		addParam(createParamCentered<CKD6>(mm2px(Vec(110.00, 60)), module, NavyArp2::SCENE_B_PARAM));
-		addChild(createLightCentered<SmallLight<GreenLight>>(mm2px(Vec(107.00, 55.00)), module, NavyArp2::SCENE_B_LIGHT));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(121.00, 60)), module, NavyArp2::MORPH_PARAM));
-		addParam(createParamCentered<CKSS>(mm2px(Vec(132.00, 60)), module, NavyArp2::LATCH_PARAM));
-		addParam(createParamCentered<CKSS>(mm2px(Vec(143.00, 60)), module, NavyArp2::FREEZE_PARAM));
+		addParam(createParamCentered<CKD6>(mm2px(Vec(98.82, 49.77)), module, NavyArp2::SCENE_A_PARAM));
+		addChild(createLightCentered<SmallLight<GreenLight>>(mm2px(Vec(94.61999999999999, 45.57)), module, NavyArp2::SCENE_A_LIGHT));
+		addParam(createParamCentered<CKD6>(mm2px(Vec(112.26, 49.77)), module, NavyArp2::SCENE_B_PARAM));
+		addChild(createLightCentered<SmallLight<GreenLight>>(mm2px(Vec(108.06, 45.57)), module, NavyArp2::SCENE_B_LIGHT));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(125.69, 49.77)), module, NavyArp2::MORPH_PARAM));
+		addParam(createParamCentered<CKSS>(mm2px(Vec(139.13, 49.77)), module, NavyArp2::LATCH_PARAM));
+		addParam(createParamCentered<CKSS>(mm2px(Vec(152.56, 49.77)), module, NavyArp2::FREEZE_PARAM));
 
 		// KEY / DENSITY
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(10.00, 81)), module, NavyArp2::ROOT_KEY_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(28.00, 81)), module, NavyArp2::SCALE_TYPE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(46.00, 81)), module, NavyArp2::DENSITY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(64.00, 81)), module, NavyArp2::SWING_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(10.0, 71.53)), module, NavyArp2::ROOT_KEY_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(25.4, 71.53)), module, NavyArp2::SCALE_TYPE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(40.8, 71.53)), module, NavyArp2::DENSITY_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(56.2, 71.53)), module, NavyArp2::SWING_PARAM));
 
 		// VOICE1
-		addParam(createParamCentered<CKSSThree>(mm2px(Vec(10.00, 100)), module, NavyArp2::VOICE1_WAVE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(23.26, 100)), module, NavyArp2::VOICE1_ATTACK_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(36.51, 100)), module, NavyArp2::VOICE1_DECAY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(49.77, 100)), module, NavyArp2::VOICE1_SUSTAIN_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(63.02, 100)), module, NavyArp2::VOICE1_RELEASE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(76.28, 100)), module, NavyArp2::VOICE1_TIMBRE_PARAM));
+		addParam(createParamCentered<CKSSThree>(mm2px(Vec(10.0, 91.61)), module, NavyArp2::VOICE1_WAVE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(23.31, 91.61)), module, NavyArp2::VOICE1_ATTACK_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(36.61, 91.61)), module, NavyArp2::VOICE1_DECAY_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(49.92, 91.61)), module, NavyArp2::VOICE1_SUSTAIN_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(63.22, 91.61)), module, NavyArp2::VOICE1_RELEASE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(76.53, 91.61)), module, NavyArp2::VOICE1_TIMBRE_PARAM));
 
 		// VOICE2
-		addParam(createParamCentered<CKSSThree>(mm2px(Vec(86.28, 100)), module, NavyArp2::VOICE2_WAVE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(99.54, 100)), module, NavyArp2::VOICE2_ATTACK_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(112.79, 100)), module, NavyArp2::VOICE2_DECAY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(126.05, 100)), module, NavyArp2::VOICE2_SUSTAIN_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(139.30, 100)), module, NavyArp2::VOICE2_RELEASE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(152.56, 100)), module, NavyArp2::VOICE2_TIMBRE_PARAM));
+		addParam(createParamCentered<CKSSThree>(mm2px(Vec(86.03, 91.61)), module, NavyArp2::VOICE2_WAVE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(99.34, 91.61)), module, NavyArp2::VOICE2_ATTACK_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(112.64, 91.61)), module, NavyArp2::VOICE2_DECAY_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(125.95, 91.61)), module, NavyArp2::VOICE2_SUSTAIN_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(139.25, 91.61)), module, NavyArp2::VOICE2_RELEASE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(152.56, 91.61)), module, NavyArp2::VOICE2_TIMBRE_PARAM));
 
-		// I/O (pad widened to clear the corner mounting screws)
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(14.00, 120)), module, NavyArp2::VOCT_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(40.91, 120)), module, NavyArp2::GATE_INPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(67.82, 120)), module, NavyArp2::PITCH_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(94.74, 120)), module, NavyArp2::GATE_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(121.65, 120)), module, NavyArp2::AUDIO_L_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(148.56, 120)), module, NavyArp2::AUDIO_R_OUTPUT));
+		// I/O
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(14.0, 111.01)), module, NavyArp2::VOCT_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(40.91, 111.01)), module, NavyArp2::GATE_INPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(67.82, 111.01)), module, NavyArp2::PITCH_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(94.74, 111.01)), module, NavyArp2::GATE_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(121.65, 111.01)), module, NavyArp2::AUDIO_L_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(148.56, 111.01)), module, NavyArp2::AUDIO_R_OUTPUT));
 	}
 };
 
