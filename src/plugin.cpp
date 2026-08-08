@@ -5,5 +5,5 @@ Plugin* pluginInstance;
 void init(Plugin* p) {
 	pluginInstance = p;
 
-	p->addModel(modelNavyArp2);
+	p->addModel(modelSpacesCommand);
 }
