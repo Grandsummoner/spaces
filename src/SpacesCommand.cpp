@@ -147,7 +147,12 @@ struct SpacesCommand : Module {
 	};
 	enum InputId { VOCT_INPUT, GATE_INPUT, VELOCITY_INPUT, CLOCK_INPUT, INPUTS_LEN };
 	enum OutputId { VOICE1_OUTPUT, VOICE2_OUTPUT, MASTER_L_OUTPUT, MASTER_R_OUTPUT, OUTPUTS_LEN };
-	enum LightId { ENUMS(STEP_LIGHTS, 8), SCENE_A_LIGHT, SCENE_B_LIGHT, LIGHTS_LEN };
+	enum LightId {
+		ENUMS(STEP_LIGHTS, 8), SCENE_A_LIGHT, SCENE_B_LIGHT,
+		ENUMS(VOICE1_WAVE_AN_LIGHT, 4), ENUMS(VOICE2_WAVE_AN_LIGHT, 4),
+		LATCH_LIGHT, ARPSEQ_LIGHT, POLY_LIGHT, FREEZE_LIGHT, ROUTING_LIGHT,
+		LIGHTS_LEN
+	};
 
 	SceneState sceneA, sceneB;
 	bool focusB = false;
@@ -160,6 +165,13 @@ struct SpacesCommand : Module {
 	dsp::PulseGenerator gatePulse;
 	dsp::SchmittTrigger sceneATrig, sceneBTrig, clockTrig;
 	dsp::SchmittTrigger diceArtiTrig, diceTimeTrig, diceNavyTrig, meloTrig;
+
+	// Waveform buttons are momentary presses (TL1105) that TOGGLE persisted
+	// state, enforced to always have >=1 active per voice -- fixes the bug
+	// where sound only played while the button was physically held.
+	bool v1WaveOn[4] = {true, false, false, false};  // AN, FM, SS, PL
+	bool v2WaveOn[4] = {false, false, true, false};
+	dsp::SchmittTrigger v1WaveTrig[4], v2WaveTrig[4];
 
 	SpacesCommand() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -261,6 +273,28 @@ struct SpacesCommand : Module {
 		params[CHAOS_PARAM].setValue(s.chaos);
 	}
 
+	json_t* dataToJson() override {
+		json_t* rootJ = json_object();
+		json_t* v1J = json_array();
+		json_t* v2J = json_array();
+		for (int i = 0; i < 4; i++) {
+			json_array_append_new(v1J, json_boolean(v1WaveOn[i]));
+			json_array_append_new(v2J, json_boolean(v2WaveOn[i]));
+		}
+		json_object_set_new(rootJ, "v1WaveOn", v1J);
+		json_object_set_new(rootJ, "v2WaveOn", v2J);
+		return rootJ;
+	}
+
+	void dataFromJson(json_t* rootJ) override {
+		json_t* v1J = json_object_get(rootJ, "v1WaveOn");
+		json_t* v2J = json_object_get(rootJ, "v2WaveOn");
+		if (v1J) for (int i = 0; i < 4 && i < (int)json_array_size(v1J); i++)
+			v1WaveOn[i] = json_boolean_value(json_array_get(v1J, i));
+		if (v2J) for (int i = 0; i < 4 && i < (int)json_array_size(v2J); i++)
+			v2WaveOn[i] = json_boolean_value(json_array_get(v2J, i));
+	}
+
 	void process(const ProcessArgs& args) override {
 		voice1.sampleRate = args.sampleRate;
 		voice2.sampleRate = args.sampleRate;
@@ -269,6 +303,13 @@ struct SpacesCommand : Module {
 		if (sceneBTrig.process(params[SCENE_B_PARAM].getValue())) focusB = true;
 		lights[SCENE_A_LIGHT].setBrightness(!focusB);
 		lights[SCENE_B_LIGHT].setBrightness(focusB);
+
+		// Mode toggle LEDs: green when on, unlit when off
+		lights[LATCH_LIGHT].setBrightness(params[LATCH_PARAM].getValue() > 0.5f ? 1.f : 0.f);
+		lights[ARPSEQ_LIGHT].setBrightness(params[ARPSEQ_PARAM].getValue() > 0.5f ? 1.f : 0.f);
+		lights[POLY_LIGHT].setBrightness(params[POLY_PARAM].getValue() > 0.5f ? 1.f : 0.f);
+		lights[FREEZE_LIGHT].setBrightness(params[FREEZE_PARAM].getValue() > 0.5f ? 1.f : 0.f);
+		lights[ROUTING_LIGHT].setBrightness(params[ROUTING_PARAM].getValue() > 0.5f ? 1.f : 0.f);
 
 		if (meloTrig.process(params[MELO_PARAM].getValue())) randomizeMelo();
 		if (diceArtiTrig.process(params[DICE_ARTI].getValue())) randomizeArti();
@@ -391,16 +432,29 @@ struct SpacesCommand : Module {
 				lights[STEP_LIGHTS + i].setBrightness(i == localStep ? 1.f : 0.f);
 		}
 
-		int wave1 = 0;
-		bool v1an = params[VOICE1_WAVE_AN].getValue() > 0.5f;
-		bool v1fm = params[VOICE1_WAVE_FM].getValue() > 0.5f;
-		bool v1ss = params[VOICE1_WAVE_SS].getValue() > 0.5f;
-		bool v1pl = params[VOICE1_WAVE_PL].getValue() > 0.5f;
-		bool v2an = params[VOICE2_WAVE_AN].getValue() > 0.5f;
-		bool v2fm = params[VOICE2_WAVE_FM].getValue() > 0.5f;
-		bool v2ss = params[VOICE2_WAVE_SS].getValue() > 0.5f;
-		bool v2pl = params[VOICE2_WAVE_PL].getValue() > 0.5f;
-		(void)wave1;
+		// Waveform buttons: momentary press toggles persisted on/off state,
+		// but never allow the last active layer to be turned off (voice
+		// must always have >=1 waveform selected -- mix-and-match is fine,
+		// silence is not).
+		auto handleWaveToggle = [&](bool wasOn[4], dsp::SchmittTrigger trig[4], int paramBase, int lightBase) {
+			for (int i = 0; i < 4; i++) {
+				if (trig[i].process(params[paramBase + i].getValue())) {
+					int activeCount = 0;
+					for (int j = 0; j < 4; j++) if (wasOn[j]) activeCount++;
+					if (wasOn[i] && activeCount <= 1) {
+						// would turn off the last active layer -- ignore
+					} else {
+						wasOn[i] = !wasOn[i];
+					}
+				}
+				lights[lightBase + i].setBrightness(wasOn[i] ? 1.f : 0.f);
+			}
+		};
+		handleWaveToggle(v1WaveOn, v1WaveTrig, VOICE1_WAVE_AN, VOICE1_WAVE_AN_LIGHT);
+		handleWaveToggle(v2WaveOn, v2WaveTrig, VOICE2_WAVE_AN, VOICE2_WAVE_AN_LIGHT);
+
+		bool v1an = v1WaveOn[0], v1fm = v1WaveOn[1], v1ss = v1WaveOn[2], v1pl = v1WaveOn[3];
+		bool v2an = v2WaveOn[0], v2fm = v2WaveOn[1], v2ss = v2WaveOn[2], v2pl = v2WaveOn[3];
 
 		float v1out = voice1.process(v1an, v1fm, v1ss, v1pl, params[VOICE1_TIMBRE_PARAM].getValue());
 		float v2out = voice2.process(v2an, v2fm, v2ss, v2pl, params[VOICE2_TIMBRE_PARAM].getValue());
@@ -412,91 +466,159 @@ struct SpacesCommand : Module {
 	}
 };
 
+// =====================================================================
+// Custom horizontal crossfader handle -- a real fader CAP that slides
+// along the SCENE track, per explicit request that it must not be a
+// knob. Drag horizontally; position maps directly to MORPH_PARAM.
+// Fill color itself blends amber(A)->cyan(B) with position, so the
+// handle visually shows how far toward each scene it's leaning.
+// =====================================================================
+struct HCrossfaderHandle : ParamWidget {
+	float trackX0Px = 0.f, trackX1Px = 0.f;
+
+	HCrossfaderHandle() {
+		box.size = mm2px(Vec(5.4, 8.4));
+	}
+
+	void draw(const DrawArgs& args) override {
+		float v = 0.f;
+		ParamQuantity* pq = getParamQuantity();
+		if (pq) v = (float)pq->getScaledValue();
+		NVGcolor fillA = nvgRGB(0xB8, 0x72, 0x0A);
+		NVGcolor fillB = nvgRGB(0x0E, 0x7A, 0x8C);
+		NVGcolor fill = nvgLerpRGBA(fillA, fillB, v);
+		nvgBeginPath(args.vg);
+		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 2.f);
+		nvgFillColor(args.vg, fill);
+		nvgFill(args.vg);
+		nvgStrokeColor(args.vg, nvgRGB(0x2A, 0x26, 0x20));
+		nvgStrokeWidth(args.vg, 1.1f);
+		nvgStroke(args.vg);
+		// center notch so the cap reads as a fader handle, not a plain block
+		nvgBeginPath(args.vg);
+		nvgMoveTo(args.vg, box.size.x/2, box.size.y*0.25f);
+		nvgLineTo(args.vg, box.size.x/2, box.size.y*0.75f);
+		nvgStrokeColor(args.vg, nvgRGBA(0xFF, 0xFF, 0xFF, 160));
+		nvgStrokeWidth(args.vg, 0.8f);
+		nvgStroke(args.vg);
+	}
+
+	void onDragMove(const DragMoveEvent& e) override {
+		ParamWidget::onDragMove(e);
+		ParamQuantity* pq = getParamQuantity();
+		if (!pq) return;
+		float zoom = getAbsoluteZoom();
+		float trackWidthPx = std::max(1.f, trackX1Px - trackX0Px);
+		float delta = e.mouseDelta.x / zoom / trackWidthPx;
+		pq->setScaledValue(clamp((float)pq->getScaledValue() + delta, 0.f, 1.f));
+	}
+};
+
 struct SpacesCommandWidget : ModuleWidget {
 	SpacesCommandWidget(SpacesCommand* module) {
 		setModule(module);
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/SpacesCommand.svg")));
 
 // PATTERN: 8 vertical faders + step lights
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(16.0, 17.7)), module, SpacesCommand::STEP_LIGHTS + 0));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(16.0, 30.5)), module, SpacesCommand::FADER_PARAM + 0));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(47.76, 17.7)), module, SpacesCommand::STEP_LIGHTS + 1));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(47.76, 30.5)), module, SpacesCommand::FADER_PARAM + 1));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(79.52, 17.7)), module, SpacesCommand::STEP_LIGHTS + 2));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(79.52, 30.5)), module, SpacesCommand::FADER_PARAM + 2));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(111.28, 17.7)), module, SpacesCommand::STEP_LIGHTS + 3));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(111.28, 30.5)), module, SpacesCommand::FADER_PARAM + 3));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(143.04, 17.7)), module, SpacesCommand::STEP_LIGHTS + 4));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(143.04, 30.5)), module, SpacesCommand::FADER_PARAM + 4));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(174.8, 17.7)), module, SpacesCommand::STEP_LIGHTS + 5));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(174.8, 30.5)), module, SpacesCommand::FADER_PARAM + 5));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(206.56, 17.7)), module, SpacesCommand::STEP_LIGHTS + 6));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(206.56, 30.5)), module, SpacesCommand::FADER_PARAM + 6));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(238.32, 17.7)), module, SpacesCommand::STEP_LIGHTS + 7));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(238.32, 30.5)), module, SpacesCommand::FADER_PARAM + 7));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(260.32, 30.5)), module, SpacesCommand::MELO_PARAM));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(21.0, 14.7)), module, SpacesCommand::STEP_LIGHTS + 0));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(21.0, 29.5)), module, SpacesCommand::FADER_PARAM + 0));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(52.05, 14.7)), module, SpacesCommand::STEP_LIGHTS + 1));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(52.05, 29.5)), module, SpacesCommand::FADER_PARAM + 1));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(83.09, 14.7)), module, SpacesCommand::STEP_LIGHTS + 2));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(83.09, 29.5)), module, SpacesCommand::FADER_PARAM + 2));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(114.14, 14.7)), module, SpacesCommand::STEP_LIGHTS + 3));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(114.14, 29.5)), module, SpacesCommand::FADER_PARAM + 3));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(145.18, 14.7)), module, SpacesCommand::STEP_LIGHTS + 4));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(145.18, 29.5)), module, SpacesCommand::FADER_PARAM + 4));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(176.23, 14.7)), module, SpacesCommand::STEP_LIGHTS + 5));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(176.23, 29.5)), module, SpacesCommand::FADER_PARAM + 5));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(207.27, 14.7)), module, SpacesCommand::STEP_LIGHTS + 6));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(207.27, 29.5)), module, SpacesCommand::FADER_PARAM + 6));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(238.32, 14.7)), module, SpacesCommand::STEP_LIGHTS + 7));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(238.32, 29.5)), module, SpacesCommand::FADER_PARAM + 7));
 
-		// SCENE: crossfader + A/B focus + mode toggles
-		addParam(createParamCentered<CKD6>(mm2px(Vec(12.0, 55.13)), module, SpacesCommand::SCENE_A_PARAM));
-		addChild(createLightCentered<SmallLight<YellowLight>>(mm2px(Vec(12.0, 50.13)), module, SpacesCommand::SCENE_A_LIGHT));
-		addParam(createParamCentered<CKD6>(mm2px(Vec(162.64, 55.13)), module, SpacesCommand::SCENE_B_PARAM));
-		addChild(createLightCentered<SmallLight<BlueLight>>(mm2px(Vec(162.64, 50.13)), module, SpacesCommand::SCENE_B_LIGHT));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(87.32, 55.13)), module, SpacesCommand::MORPH_PARAM));
-		addParam(createParamCentered<CKSS>(mm2px(Vec(188.59, 55.13)), module, SpacesCommand::LATCH_PARAM));
-		addParam(createParamCentered<CKSS>(mm2px(Vec(204.53, 55.13)), module, SpacesCommand::ARPSEQ_PARAM));
-		addParam(createParamCentered<CKSS>(mm2px(Vec(220.48, 55.13)), module, SpacesCommand::POLY_PARAM));
-		addParam(createParamCentered<CKSS>(mm2px(Vec(236.43, 55.13)), module, SpacesCommand::FREEZE_PARAM));
-		addParam(createParamCentered<CKSS>(mm2px(Vec(252.37, 55.13)), module, SpacesCommand::ROUTING_PARAM));
+		// PATTERN: grouped randomize buttons (MELO/ARTI/TIME/NAVY), square LEDBezel
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(256.08, 23.5)), module, SpacesCommand::MELO_PARAM));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(262.56, 23.5)), module, SpacesCommand::DICE_ARTI));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(256.08, 35.5)), module, SpacesCommand::DICE_TIME));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(262.56, 35.5)), module, SpacesCommand::DICE_NAVY));
 
-		// FEEL: macro knobs + dice buttons
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(12.0, 73.83)), module, SpacesCommand::REST_PARAM));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(30.49, 73.83)), module, SpacesCommand::DICE_ARTI));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(48.97, 73.83)), module, SpacesCommand::LEGATO_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(67.46, 73.83)), module, SpacesCommand::RATE_PARAM));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(85.95, 73.83)), module, SpacesCommand::DICE_TIME));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(104.43, 73.83)), module, SpacesCommand::ENTROPY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(122.92, 73.83)), module, SpacesCommand::HARMONY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(141.4, 73.83)), module, SpacesCommand::CHAOS_PARAM));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(159.89, 73.83)), module, SpacesCommand::DICE_NAVY));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(178.38, 73.83)), module, SpacesCommand::OCTAVES_PARAM));
+		// SCENE: A/B focus (square, whole-face red when focused) + custom crossfader fader cap + mode toggles (square, green on/off)
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(19.0, 54.0)), module, SpacesCommand::SCENE_A_PARAM));
+		addChild(createLightCentered<LEDBezelLight<RedLight>>(mm2px(Vec(19.0, 54.0)), module, SpacesCommand::SCENE_A_LIGHT));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(160.19, 54.0)), module, SpacesCommand::SCENE_B_PARAM));
+		addChild(createLightCentered<LEDBezelLight<RedLight>>(mm2px(Vec(160.19, 54.0)), module, SpacesCommand::SCENE_B_LIGHT));
+		{
+			auto* xfHandle = createParamCentered<HCrossfaderHandle>(mm2px(Vec((25.6+153.59)/2.f, 54.0)), module, SpacesCommand::MORPH_PARAM);
+			xfHandle->trackX0Px = mm2px(Vec(25.6, 0)).x;
+			xfHandle->trackX1Px = mm2px(Vec(153.59, 0)).x;
+			addParam(xfHandle);
+		}
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(186.55, 54.0)), module, SpacesCommand::LATCH_PARAM));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(186.55, 54.0)), module, SpacesCommand::LATCH_LIGHT));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(202.9, 54.0)), module, SpacesCommand::ARPSEQ_PARAM));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(202.9, 54.0)), module, SpacesCommand::ARPSEQ_LIGHT));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(219.26, 54.0)), module, SpacesCommand::POLY_PARAM));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(219.26, 54.0)), module, SpacesCommand::POLY_LIGHT));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(235.61, 54.0)), module, SpacesCommand::FREEZE_PARAM));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(235.61, 54.0)), module, SpacesCommand::FREEZE_LIGHT));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(251.97, 54.0)), module, SpacesCommand::ROUTING_PARAM));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(251.97, 54.0)), module, SpacesCommand::ROUTING_LIGHT));
 
-		// KEY / DENSITY
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(192.88, 73.83)), module, SpacesCommand::ROOT_KEY_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(215.69, 73.83)), module, SpacesCommand::SCALE_TYPE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(238.51, 73.83)), module, SpacesCommand::DENSITY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(261.32, 73.83)), module, SpacesCommand::SWING_PARAM));
+		// FEEL: macro knobs
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(21.0, 70.58)), module, SpacesCommand::REST_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(45.15, 70.58)), module, SpacesCommand::LEGATO_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(69.29, 70.58)), module, SpacesCommand::RATE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(93.44, 70.58)), module, SpacesCommand::ENTROPY_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(117.59, 70.58)), module, SpacesCommand::HARMONY_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(141.74, 70.58)), module, SpacesCommand::CHAOS_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(165.88, 70.58)), module, SpacesCommand::OCTAVES_PARAM));
 
-		// VOICE1
-		addParam(createParamCentered<TL1105>(mm2px(Vec(12.58, 93.89)), module, SpacesCommand::VOICE1_WAVE_AN));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(27.24, 93.89)), module, SpacesCommand::VOICE1_WAVE_FM));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(41.89, 93.89)), module, SpacesCommand::VOICE1_WAVE_SS));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(56.55, 93.89)), module, SpacesCommand::VOICE1_WAVE_PL));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(71.2, 93.89)), module, SpacesCommand::VOICE1_ATTACK_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(85.86, 93.89)), module, SpacesCommand::VOICE1_DECAY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(100.52, 93.89)), module, SpacesCommand::VOICE1_SUSTAIN_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(115.17, 93.89)), module, SpacesCommand::VOICE1_RELEASE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(129.83, 93.89)), module, SpacesCommand::VOICE1_TIMBRE_PARAM));
+		// KEY: same knob size as FEEL/DENS/SWING throughout
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(192.38, 70.58)), module, SpacesCommand::ROOT_KEY_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(215.03, 70.58)), module, SpacesCommand::SCALE_TYPE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(237.67, 70.58)), module, SpacesCommand::DENSITY_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(260.32, 70.58)), module, SpacesCommand::SWING_PARAM));
 
-		// VOICE2
-		addParam(createParamCentered<TL1105>(mm2px(Vec(144.49, 93.89)), module, SpacesCommand::VOICE2_WAVE_AN));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(159.15, 93.89)), module, SpacesCommand::VOICE2_WAVE_FM));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(173.8, 93.89)), module, SpacesCommand::VOICE2_WAVE_SS));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(188.46, 93.89)), module, SpacesCommand::VOICE2_WAVE_PL));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(203.12, 93.89)), module, SpacesCommand::VOICE2_ATTACK_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(217.77, 93.89)), module, SpacesCommand::VOICE2_DECAY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(232.43, 93.89)), module, SpacesCommand::VOICE2_SUSTAIN_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(247.08, 93.89)), module, SpacesCommand::VOICE2_RELEASE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(261.74, 93.89)), module, SpacesCommand::VOICE2_TIMBRE_PARAM));
+		// VOICE1: square LEDBezel wave buttons (persisted toggle, green on/off) + knobs
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(19.58, 89.64)), module, SpacesCommand::VOICE1_WAVE_AN));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(19.58, 89.64)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 0));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(33.24, 89.64)), module, SpacesCommand::VOICE1_WAVE_FM));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(33.24, 89.64)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 1));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(46.89, 89.64)), module, SpacesCommand::VOICE1_WAVE_SS));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(46.89, 89.64)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 2));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(60.55, 89.64)), module, SpacesCommand::VOICE1_WAVE_PL));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(60.55, 89.64)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 3));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(74.2, 89.64)), module, SpacesCommand::VOICE1_ATTACK_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(87.86, 89.64)), module, SpacesCommand::VOICE1_DECAY_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(101.52, 89.64)), module, SpacesCommand::VOICE1_SUSTAIN_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(115.17, 89.64)), module, SpacesCommand::VOICE1_RELEASE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(128.83, 89.64)), module, SpacesCommand::VOICE1_TIMBRE_PARAM));
+
+		// VOICE2: square LEDBezel wave buttons (persisted toggle, green on/off) + knobs
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(152.49, 89.64)), module, SpacesCommand::VOICE2_WAVE_AN));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(152.49, 89.64)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 0));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(166.15, 89.64)), module, SpacesCommand::VOICE2_WAVE_FM));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(166.15, 89.64)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 1));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(179.8, 89.64)), module, SpacesCommand::VOICE2_WAVE_SS));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(179.8, 89.64)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 2));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(193.46, 89.64)), module, SpacesCommand::VOICE2_WAVE_PL));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(193.46, 89.64)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 3));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(207.12, 89.64)), module, SpacesCommand::VOICE2_ATTACK_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(220.77, 89.64)), module, SpacesCommand::VOICE2_DECAY_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(234.43, 89.64)), module, SpacesCommand::VOICE2_SUSTAIN_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(248.08, 89.64)), module, SpacesCommand::VOICE2_RELEASE_PARAM));
+		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(261.74, 89.64)), module, SpacesCommand::VOICE2_TIMBRE_PARAM));
 
 		// I/O
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(12.4, 113.27)), module, SpacesCommand::VOCT_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(48.05, 113.27)), module, SpacesCommand::GATE_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(83.69, 113.27)), module, SpacesCommand::VELOCITY_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(119.34, 113.27)), module, SpacesCommand::CLOCK_INPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(154.98, 113.27)), module, SpacesCommand::VOICE1_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(190.63, 113.27)), module, SpacesCommand::VOICE2_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(226.27, 113.27)), module, SpacesCommand::MASTER_L_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(261.92, 113.27)), module, SpacesCommand::MASTER_R_OUTPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.4, 108.02)), module, SpacesCommand::VOCT_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(54.05, 108.02)), module, SpacesCommand::GATE_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(88.69, 108.02)), module, SpacesCommand::VELOCITY_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(123.34, 108.02)), module, SpacesCommand::CLOCK_INPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(157.98, 108.02)), module, SpacesCommand::VOICE1_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(192.63, 108.02)), module, SpacesCommand::VOICE2_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(227.27, 108.02)), module, SpacesCommand::MASTER_L_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(261.92, 108.02)), module, SpacesCommand::MASTER_R_OUTPUT));
 	}
 };
 
