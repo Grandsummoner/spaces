@@ -1,0 +1,310 @@
+{
+  "steps": [
+    {
+      "x": 16.0,
+      "light_y": 17.7,
+      "fader_y": 30.5
+    },
+    {
+      "x": 47.76,
+      "light_y": 17.7,
+      "fader_y": 30.5
+    },
+    {
+      "x": 79.52,
+      "light_y": 17.7,
+      "fader_y": 30.5
+    },
+    {
+      "x": 111.28,
+      "light_y": 17.7,
+      "fader_y": 30.5
+    },
+    {
+      "x": 143.04,
+      "light_y": 17.7,
+      "fader_y": 30.5
+    },
+    {
+      "x": 174.8,
+      "light_y": 17.7,
+      "fader_y": 30.5
+    },
+    {
+      "x": 206.56,
+      "light_y": 17.7,
+      "fader_y": 30.5
+    },
+    {
+      "x": 238.32,
+      "light_y": 17.7,
+      "fader_y": 30.5
+    }
+  ],
+  "crossfader": {
+    "a_x": 12.0,
+    "b_x": 162.64,
+    "track_x0": 18.73,
+    "track_x1": 155.91,
+    "y": 55.13
+  },
+  "macro": [
+    {
+      "x": 12.0,
+      "y": 73.83,
+      "param": "REST_PARAM",
+      "kind": "knob"
+    },
+    {
+      "x": 30.49,
+      "y": 73.83,
+      "param": "DICE_ARTI",
+      "kind": "dice"
+    },
+    {
+      "x": 48.97,
+      "y": 73.83,
+      "param": "LEGATO_PARAM",
+      "kind": "knob"
+    },
+    {
+      "x": 67.46,
+      "y": 73.83,
+      "param": "RATE_PARAM",
+      "kind": "knob"
+    },
+    {
+      "x": 85.95,
+      "y": 73.83,
+      "param": "DICE_TIME",
+      "kind": "dice"
+    },
+    {
+      "x": 104.43,
+      "y": 73.83,
+      "param": "ENTROPY_PARAM",
+      "kind": "knob"
+    },
+    {
+      "x": 122.92,
+      "y": 73.83,
+      "param": "HARMONY_PARAM",
+      "kind": "knob"
+    },
+    {
+      "x": 141.4,
+      "y": 73.83,
+      "param": "CHAOS_PARAM",
+      "kind": "knob"
+    },
+    {
+      "x": 159.89,
+      "y": 73.83,
+      "param": "DICE_NAVY",
+      "kind": "dice"
+    },
+    {
+      "x": 178.38,
+      "y": 73.83,
+      "param": "OCTAVES_PARAM",
+      "kind": "knob"
+    }
+  ],
+  "mode": [
+    {
+      "x": 188.59,
+      "y": 55.13,
+      "name": "LATCH"
+    },
+    {
+      "x": 204.53,
+      "y": 55.13,
+      "name": "ARP-SEQ"
+    },
+    {
+      "x": 220.48,
+      "y": 55.13,
+      "name": "POLY"
+    },
+    {
+      "x": 236.43,
+      "y": 55.13,
+      "name": "FREEZE"
+    },
+    {
+      "x": 252.37,
+      "y": 55.13,
+      "name": "ROUTING"
+    }
+  ],
+  "key": [
+    {
+      "x": 192.88,
+      "y": 73.83,
+      "param": "ROOT_KEY_PARAM"
+    },
+    {
+      "x": 215.69,
+      "y": 73.83,
+      "param": "SCALE_TYPE_PARAM"
+    },
+    {
+      "x": 238.51,
+      "y": 73.83,
+      "param": "DENSITY_PARAM"
+    },
+    {
+      "x": 261.32,
+      "y": 73.83,
+      "param": "SWING_PARAM"
+    }
+  ],
+  "voice1": [
+    {
+      "x": 12.58,
+      "y": 93.89,
+      "param": "VOICE1_WAVE_AN"
+    },
+    {
+      "x": 27.24,
+      "y": 93.89,
+      "param": "VOICE1_WAVE_FM"
+    },
+    {
+      "x": 41.89,
+      "y": 93.89,
+      "param": "VOICE1_WAVE_SS"
+    },
+    {
+      "x": 56.55,
+      "y": 93.89,
+      "param": "VOICE1_WAVE_PL"
+    },
+    {
+      "x": 71.2,
+      "y": 93.89,
+      "param": "VOICE1_ATTACK_PARAM"
+    },
+    {
+      "x": 85.86,
+      "y": 93.89,
+      "param": "VOICE1_DECAY_PARAM"
+    },
+    {
+      "x": 100.52,
+      "y": 93.89,
+      "param": "VOICE1_SUSTAIN_PARAM"
+    },
+    {
+      "x": 115.17,
+      "y": 93.89,
+      "param": "VOICE1_RELEASE_PARAM"
+    },
+    {
+      "x": 129.83,
+      "y": 93.89,
+      "param": "VOICE1_TIMBRE_PARAM"
+    }
+  ],
+  "voice2": [
+    {
+      "x": 144.49,
+      "y": 93.89,
+      "param": "VOICE2_WAVE_AN"
+    },
+    {
+      "x": 159.15,
+      "y": 93.89,
+      "param": "VOICE2_WAVE_FM"
+    },
+    {
+      "x": 173.8,
+      "y": 93.89,
+      "param": "VOICE2_WAVE_SS"
+    },
+    {
+      "x": 188.46,
+      "y": 93.89,
+      "param": "VOICE2_WAVE_PL"
+    },
+    {
+      "x": 203.12,
+      "y": 93.89,
+      "param": "VOICE2_ATTACK_PARAM"
+    },
+    {
+      "x": 217.77,
+      "y": 93.89,
+      "param": "VOICE2_DECAY_PARAM"
+    },
+    {
+      "x": 232.43,
+      "y": 93.89,
+      "param": "VOICE2_SUSTAIN_PARAM"
+    },
+    {
+      "x": 247.08,
+      "y": 93.89,
+      "param": "VOICE2_RELEASE_PARAM"
+    },
+    {
+      "x": 261.74,
+      "y": 93.89,
+      "param": "VOICE2_TIMBRE_PARAM"
+    }
+  ],
+  "io": [
+    {
+      "x": 12.4,
+      "y": 113.27,
+      "param": "VOCT_INPUT",
+      "dir": "in"
+    },
+    {
+      "x": 48.05,
+      "y": 113.27,
+      "param": "GATE_INPUT",
+      "dir": "in"
+    },
+    {
+      "x": 83.69,
+      "y": 113.27,
+      "param": "VELOCITY_INPUT",
+      "dir": "in"
+    },
+    {
+      "x": 119.34,
+      "y": 113.27,
+      "param": "CLOCK_INPUT",
+      "dir": "in"
+    },
+    {
+      "x": 154.98,
+      "y": 113.27,
+      "param": "VOICE1_OUTPUT",
+      "dir": "out"
+    },
+    {
+      "x": 190.63,
+      "y": 113.27,
+      "param": "VOICE2_OUTPUT",
+      "dir": "out"
+    },
+    {
+      "x": 226.27,
+      "y": 113.27,
+      "param": "MASTER_L_OUTPUT",
+      "dir": "out"
+    },
+    {
+      "x": 261.92,
+      "y": 113.27,
+      "param": "MASTER_R_OUTPUT",
+      "dir": "out"
+    }
+  ],
+  "macro_dice_melo": {
+    "x": 260.32,
+    "y": 30.5
+  }
+}
