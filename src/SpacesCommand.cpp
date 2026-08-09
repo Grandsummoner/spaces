@@ -480,6 +480,16 @@ struct HCrossfaderHandle : ParamWidget {
 		box.size = mm2px(Vec(5.4, 8.4));
 	}
 
+	// ParamWidget does not automatically capture drag input -- without
+	// explicitly consuming the left-click here, onDragMove is never called
+	// at all, which was the "crossfader cannot move" bug.
+	void onButton(const ButtonEvent& e) override {
+		ParamWidget::onButton(e);
+		if (e.action == GLFW_PRESS && e.button == GLFW_MOUSE_BUTTON_LEFT) {
+			e.consume(this);
+		}
+	}
+
 	void draw(const DrawArgs& args) override {
 		float v = 0.f;
 		ParamQuantity* pq = getParamQuantity();
@@ -520,28 +530,28 @@ struct SpacesCommandWidget : ModuleWidget {
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/SpacesCommand.svg")));
 
 // PATTERN: 8 vertical faders + step lights
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(21.0, 14.7)), module, SpacesCommand::STEP_LIGHTS + 0));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(21.0, 29.5)), module, SpacesCommand::FADER_PARAM + 0));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(52.05, 14.7)), module, SpacesCommand::STEP_LIGHTS + 1));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(52.05, 29.5)), module, SpacesCommand::FADER_PARAM + 1));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(83.09, 14.7)), module, SpacesCommand::STEP_LIGHTS + 2));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(83.09, 29.5)), module, SpacesCommand::FADER_PARAM + 2));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(114.14, 14.7)), module, SpacesCommand::STEP_LIGHTS + 3));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(114.14, 29.5)), module, SpacesCommand::FADER_PARAM + 3));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(145.18, 14.7)), module, SpacesCommand::STEP_LIGHTS + 4));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(145.18, 29.5)), module, SpacesCommand::FADER_PARAM + 4));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(176.23, 14.7)), module, SpacesCommand::STEP_LIGHTS + 5));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(176.23, 29.5)), module, SpacesCommand::FADER_PARAM + 5));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(207.27, 14.7)), module, SpacesCommand::STEP_LIGHTS + 6));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(207.27, 29.5)), module, SpacesCommand::FADER_PARAM + 6));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(238.32, 14.7)), module, SpacesCommand::STEP_LIGHTS + 7));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(238.32, 29.5)), module, SpacesCommand::FADER_PARAM + 7));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(23.0, 14.7)), module, SpacesCommand::STEP_LIGHTS + 0));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(23.0, 29.5)), module, SpacesCommand::FADER_PARAM + 0));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(44.46, 14.7)), module, SpacesCommand::STEP_LIGHTS + 1));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(44.46, 29.5)), module, SpacesCommand::FADER_PARAM + 1));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(65.92, 14.7)), module, SpacesCommand::STEP_LIGHTS + 2));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(65.92, 29.5)), module, SpacesCommand::FADER_PARAM + 2));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(87.38, 14.7)), module, SpacesCommand::STEP_LIGHTS + 3));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(87.38, 29.5)), module, SpacesCommand::FADER_PARAM + 3));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(108.84, 14.7)), module, SpacesCommand::STEP_LIGHTS + 4));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(108.84, 29.5)), module, SpacesCommand::FADER_PARAM + 4));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(130.3, 14.7)), module, SpacesCommand::STEP_LIGHTS + 5));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(130.3, 29.5)), module, SpacesCommand::FADER_PARAM + 5));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(151.75, 14.7)), module, SpacesCommand::STEP_LIGHTS + 6));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(151.75, 29.5)), module, SpacesCommand::FADER_PARAM + 6));
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(173.21, 14.7)), module, SpacesCommand::STEP_LIGHTS + 7));
+		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(173.21, 29.5)), module, SpacesCommand::FADER_PARAM + 7));
 
 		// PATTERN: grouped randomize buttons (MELO/ARTI/TIME/NAVY), square LEDBezel
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(256.08, 23.5)), module, SpacesCommand::MELO_PARAM));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(262.56, 23.5)), module, SpacesCommand::DICE_ARTI));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(256.08, 35.5)), module, SpacesCommand::DICE_TIME));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(262.56, 35.5)), module, SpacesCommand::DICE_NAVY));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(211.55, 20.5)), module, SpacesCommand::MELO_PARAM));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(243.99, 20.5)), module, SpacesCommand::DICE_ARTI));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(211.55, 38.5)), module, SpacesCommand::DICE_TIME));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(243.99, 38.5)), module, SpacesCommand::DICE_NAVY));
 
 		// SCENE: A/B focus (square, whole-face red when focused) + custom crossfader fader cap + mode toggles (square, green on/off)
 		addParam(createParamCentered<LEDBezel>(mm2px(Vec(19.0, 54.0)), module, SpacesCommand::SCENE_A_PARAM));
