@@ -129,6 +129,13 @@ def micro(text, x, y, color=MICRO, size=1.7):
     p, _ = txt(text, x, y, size, color, anchor="middle")
     add(p)
 
+def centered_y(box_y, box_h, r):
+    """Center the [control + label] block within the box's full height,
+    instead of anchoring to the top with dead space left below."""
+    block_h = 2*r + LABEL_GAP + LABEL_H
+    block_top = box_y + (box_h - block_h) / 2
+    return block_top + r
+
 layout = {"steps": [], "crossfader": {}, "macro": [], "mode": [], "key": [],
           "voice1": [], "voice2": [], "io": [], "randomize": []}
 
@@ -139,14 +146,21 @@ def grid_x(name, n, i, pad=6.0):
     return x + pad + step*i if n > 1 else x + w/2
 
 sx, sy, sw, sh, _ = sections["steps"]
-ctrl_top = sy + TITLE_GAP
-light_y = ctrl_top + R["light"]
+# This row's block is taller than a plain control+label (light sits above
+# the fader too), so center that full stack explicitly rather than reusing
+# the generic centered_y() helper, which would leave the light poking
+# above the box.
+light_extra = R["light"]*2 + 0.8
+block_h = light_extra + 2*R["fader_half"] + LABEL_GAP + LABEL_H
+block_top = sy + (sh - block_h) / 2
+light_y = block_top + R["light"]
 fader_y = light_y + R["light"] + 0.8 + R["fader_half"]
 label_y = fader_y + R["fader_half"] + LABEL_GAP + LABEL_H
 
-CLUSTER_W = 22.0
-faders_w = sw - CLUSTER_W
-fader_pad = 8.0
+# Faders compressed to 2/3 of the section width; randomize cluster takes
+# the freed 1/3, with bigger buttons/spacing (per explicit request).
+faders_w = sw * (2.0/3.0)
+fader_pad = 10.0
 for i in range(8):
     step_x = fader_pad + (faders_w - 2*fader_pad) / 7 * i
     cx = sx + step_x
@@ -157,19 +171,20 @@ divider_x = sx + faders_w + 4.0
 add(f'<line x1="{divider_x}" y1="{sy+5}" x2="{divider_x}" y2="{sy+sh-5}" stroke="{BORDER}" stroke-width="0.3" stroke-opacity="0.5"/>')
 cluster_x0 = sx + faders_w + 4.0
 cluster_w = sw - faders_w - 4.0
+R["bezel_big"] = 4.2  # bigger footprint for the now-roomier randomize cluster
 rand_names = ["MELO", "ARTI", "TIME", "NAVY"]
 rand_params = ["MELO_PARAM", "DICE_ARTI", "DICE_TIME", "DICE_NAVY"]
-rx = [cluster_x0 + cluster_w*0.32, cluster_x0 + cluster_w*0.68]
-ry = [fader_y - 6.0, fader_y + 6.0]
+rx = [cluster_x0 + cluster_w*0.30, cluster_x0 + cluster_w*0.70]
+ry = [fader_y - 9.0, fader_y + 9.0]
 positions = [(rx[0], ry[0]), (rx[1], ry[0]), (rx[0], ry[1]), (rx[1], ry[1])]
 for (px, py), nm, pnm in zip(positions, rand_names, rand_params):
-    micro(nm, px, py + R["bezel"] + LABEL_GAP + 1.0, size=1.4)
+    micro(nm, px, py + R["bezel_big"] + LABEL_GAP + 1.2, size=1.8)
     layout["randomize"].append({"x": round(px,2), "y": round(py,2), "param": pnm, "name": nm})
-p, _ = txt("randomize", cluster_x0 + cluster_w/2, sy + 5.0, 1.4, TEXT_DIM, anchor="middle")
+p, _ = txt("randomize", cluster_x0 + cluster_w/2, sy + 5.5, 1.7, TEXT_DIM, anchor="middle")
 add(p)
 
 cx0, cy0, cw0, ch0, _ = sections["crossfader"]
-ctrl_y = cy0 + TITLE_GAP + R["bezel"]
+ctrl_y = centered_y(cy0, ch0, R["bezel"])
 label_y_xf = ctrl_y + R["bezel"] + LABEL_GAP + LABEL_H
 
 xfader_zone_w = cw0 * 0.60
@@ -196,8 +211,7 @@ for i, nm in enumerate(mode_names):
     layout["mode"].append({"x": round(mx,2), "y": round(ctrl_y,2), "name": nm})
 
 mx0, my0, mw0, mh0, _ = sections["macro"]
-ctrl_top = my0 + TITLE_GAP
-knob_y = ctrl_top + R["knob"]
+knob_y = centered_y(my0, mh0, R["knob"])
 label_y_m = knob_y + R["knob"] + LABEL_GAP + LABEL_H
 macro_names = ["REST","LEGATO","RATE","ENTROPY","HARMONY","CHAOS","OCTAVES"]
 macro_params = ["REST_PARAM","LEGATO_PARAM","RATE_PARAM","ENTROPY_PARAM","HARMONY_PARAM","CHAOS_PARAM","OCTAVES_PARAM"]
@@ -211,8 +225,7 @@ for i, (nm, pnm) in enumerate(zip(macro_names, macro_params)):
     layout["macro"].append({"x": round(cx,2), "y": round(knob_y,2), "param": pnm})
 
 kx0, ky0, kw0, kh0, _ = sections["key"]
-ctrl_top = ky0 + TITLE_GAP
-knob_y_k = ctrl_top + R["knob"]
+knob_y_k = centered_y(ky0, kh0, R["knob"])
 label_y_k = knob_y_k + R["knob"] + LABEL_GAP + LABEL_H
 key_names = ["ROOT","SCALE","DENS","SWING"]
 key_params = ["ROOT_KEY_PARAM","SCALE_TYPE_PARAM","DENSITY_PARAM","SWING_PARAM"]
@@ -223,8 +236,7 @@ for i, (nm, pnm) in enumerate(zip(key_names, key_params)):
 
 def voice_layout(name, prefix, accent):
     vx, vy, vw, vh, _ = sections[name]
-    ctrl_top = vy + TITLE_GAP
-    knob_y_v = ctrl_top + R["knob"]
+    knob_y_v = centered_y(vy, vh, R["knob"])
     label_y_v = knob_y_v + R["knob"] + LABEL_GAP + LABEL_H
     out = []
     items = [("AN","wave"), ("FM","wave"), ("SS","wave"), ("PL","wave"),
@@ -244,8 +256,7 @@ layout["voice1"] = voice_layout("voice1", "VOICE1", AMBER)
 layout["voice2"] = voice_layout("voice2", "VOICE2", CYAN)
 
 iox, ioy, iow, ioh, _ = sections["io"]
-ctrl_top = ioy + TITLE_GAP
-port_y = ctrl_top + R["port"]
+port_y = centered_y(ioy, ioh, R["port"])
 label_y_io = port_y + R["port"] + LABEL_GAP + LABEL_H
 io_names = ["V/OCT","GATE","VEL","CLOCK","VOICE 1","VOICE 2","MASTER L","MASTER R"]
 io_params = ["VOCT_INPUT","GATE_INPUT","VELOCITY_INPUT","CLOCK_INPUT",
