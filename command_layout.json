@@ -2,246 +2,276 @@
   "steps": [
     {
       "x": 23.0,
-      "light_y": 14.7,
-      "fader_y": 29.5
+      "light_y": 87.48,
+      "fader_y": 101.28,
+      "track_y0": 89.28,
+      "track_y1": 113.28
     },
     {
       "x": 44.46,
-      "light_y": 14.7,
-      "fader_y": 29.5
+      "light_y": 87.48,
+      "fader_y": 101.28,
+      "track_y0": 89.28,
+      "track_y1": 113.28
     },
     {
       "x": 65.92,
-      "light_y": 14.7,
-      "fader_y": 29.5
+      "light_y": 87.48,
+      "fader_y": 101.28,
+      "track_y0": 89.28,
+      "track_y1": 113.28
     },
     {
       "x": 87.38,
-      "light_y": 14.7,
-      "fader_y": 29.5
+      "light_y": 87.48,
+      "fader_y": 101.28,
+      "track_y0": 89.28,
+      "track_y1": 113.28
     },
     {
       "x": 108.84,
-      "light_y": 14.7,
-      "fader_y": 29.5
+      "light_y": 87.48,
+      "fader_y": 101.28,
+      "track_y0": 89.28,
+      "track_y1": 113.28
     },
     {
       "x": 130.3,
-      "light_y": 14.7,
-      "fader_y": 29.5
+      "light_y": 87.48,
+      "fader_y": 101.28,
+      "track_y0": 89.28,
+      "track_y1": 113.28
     },
     {
       "x": 151.75,
-      "light_y": 14.7,
-      "fader_y": 29.5
+      "light_y": 87.48,
+      "fader_y": 101.28,
+      "track_y0": 89.28,
+      "track_y1": 113.28
     },
     {
       "x": 173.21,
-      "light_y": 14.7,
-      "fader_y": 29.5
+      "light_y": 87.48,
+      "fader_y": 101.28,
+      "track_y0": 89.28,
+      "track_y1": 113.28
     }
   ],
   "crossfader": {
-    "a_x": 19.0,
-    "b_x": 160.19,
-    "track_x0": 25.6,
-    "track_x1": 153.59,
-    "y": 54.0
+    "a_x": 20.0,
+    "b_x": 161.64,
+    "track_x0": 27.6,
+    "track_x1": 154.04,
+    "y": 75.28
   },
-  "macro": [
+  "controls": [
     {
-      "x": 21.0,
-      "y": 70.58,
-      "param": "REST_PARAM"
-    },
-    {
-      "x": 45.15,
-      "y": 70.58,
-      "param": "LEGATO_PARAM"
-    },
-    {
-      "x": 69.29,
-      "y": 70.58,
-      "param": "RATE_PARAM"
-    },
-    {
-      "x": 93.44,
-      "y": 70.58,
-      "param": "ENTROPY_PARAM"
-    },
-    {
-      "x": 117.59,
-      "y": 70.58,
-      "param": "HARMONY_PARAM"
-    },
-    {
-      "x": 141.74,
-      "y": 70.58,
-      "param": "CHAOS_PARAM"
-    },
-    {
-      "x": 165.88,
-      "y": 70.58,
-      "param": "OCTAVES_PARAM"
-    }
-  ],
-  "mode": [
-    {
-      "x": 186.55,
-      "y": 54.0,
+      "x": 179.89,
+      "y": 38.02,
+      "param": "LATCH_PARAM",
+      "light": "LATCH_LIGHT",
       "name": "LATCH"
     },
     {
-      "x": 202.9,
-      "y": 54.0,
+      "x": 200.25,
+      "y": 38.02,
+      "param": "ARPSEQ_PARAM",
+      "light": "ARPSEQ_LIGHT",
       "name": "ARP-SEQ"
     },
     {
-      "x": 219.26,
-      "y": 54.0,
+      "x": 220.61,
+      "y": 38.02,
+      "param": "POLY_PARAM",
+      "light": "POLY_LIGHT",
       "name": "POLY"
     },
     {
-      "x": 235.61,
-      "y": 54.0,
+      "x": 240.96,
+      "y": 38.02,
+      "param": "FREEZE_PARAM",
+      "light": "FREEZE_LIGHT",
       "name": "FREEZE"
     },
     {
-      "x": 251.97,
-      "y": 54.0,
+      "x": 261.32,
+      "y": 38.02,
+      "param": "ROUTING_PARAM",
+      "light": "ROUTING_LIGHT",
       "name": "ROUTING"
     }
   ],
   "key": [
     {
-      "x": 192.38,
-      "y": 70.58,
-      "param": "ROOT_KEY_PARAM"
+      "x": 184.14,
+      "y": 73.78,
+      "param": "ROOT_KEY_PARAM",
+      "size": "small"
     },
     {
-      "x": 215.03,
-      "y": 70.58,
-      "param": "SCALE_TYPE_PARAM"
+      "x": 210.2,
+      "y": 73.78,
+      "param": "SCALE_TYPE_PARAM",
+      "size": "small"
     },
     {
-      "x": 237.67,
-      "y": 70.58,
-      "param": "DENSITY_PARAM"
+      "x": 236.26,
+      "y": 73.78,
+      "param": "DENSITY_PARAM",
+      "size": "small"
     },
     {
-      "x": 260.32,
-      "y": 70.58,
-      "param": "SWING_PARAM"
+      "x": 262.32,
+      "y": 73.78,
+      "param": "SWING_PARAM",
+      "size": "small"
+    }
+  ],
+  "macro": [
+    {
+      "x": 21.0,
+      "y": 38.02,
+      "param": "REST_PARAM"
+    },
+    {
+      "x": 43.4,
+      "y": 38.02,
+      "param": "LEGATO_PARAM"
+    },
+    {
+      "x": 65.8,
+      "y": 38.02,
+      "param": "RATE_PARAM"
+    },
+    {
+      "x": 88.2,
+      "y": 38.02,
+      "param": "ENTROPY_PARAM"
+    },
+    {
+      "x": 110.59,
+      "y": 38.02,
+      "param": "HARMONY_PARAM"
+    },
+    {
+      "x": 132.99,
+      "y": 38.02,
+      "param": "CHAOS_PARAM"
+    },
+    {
+      "x": 155.39,
+      "y": 38.02,
+      "param": "OCTAVES_PARAM"
     }
   ],
   "voice1": [
     {
-      "x": 19.58,
-      "y": 89.64,
+      "x": 18.82,
+      "y": 56.76,
       "param": "VOICE1_WAVE_AN",
       "kind": "wave"
     },
     {
-      "x": 33.24,
-      "y": 89.64,
+      "x": 32.73,
+      "y": 56.76,
       "param": "VOICE1_WAVE_FM",
       "kind": "wave"
     },
     {
-      "x": 46.89,
-      "y": 89.64,
+      "x": 46.64,
+      "y": 56.76,
       "param": "VOICE1_WAVE_SS",
       "kind": "wave"
     },
     {
       "x": 60.55,
-      "y": 89.64,
+      "y": 56.76,
       "param": "VOICE1_WAVE_PL",
       "kind": "wave"
     },
     {
-      "x": 74.2,
-      "y": 89.64,
+      "x": 74.45,
+      "y": 56.76,
       "param": "VOICE1_ATTACK_PARAM",
       "kind": "knob"
     },
     {
-      "x": 87.86,
-      "y": 89.64,
+      "x": 88.36,
+      "y": 56.76,
       "param": "VOICE1_DECAY_PARAM",
       "kind": "knob"
     },
     {
-      "x": 101.52,
-      "y": 89.64,
+      "x": 102.27,
+      "y": 56.76,
       "param": "VOICE1_SUSTAIN_PARAM",
       "kind": "knob"
     },
     {
-      "x": 115.17,
-      "y": 89.64,
+      "x": 116.18,
+      "y": 56.76,
       "param": "VOICE1_RELEASE_PARAM",
       "kind": "knob"
     },
     {
-      "x": 128.83,
-      "y": 89.64,
+      "x": 130.09,
+      "y": 56.76,
       "param": "VOICE1_TIMBRE_PARAM",
       "kind": "knob"
     }
   ],
   "voice2": [
     {
-      "x": 152.49,
-      "y": 89.64,
+      "x": 151.23,
+      "y": 56.76,
       "param": "VOICE2_WAVE_AN",
       "kind": "wave"
     },
     {
-      "x": 166.15,
-      "y": 89.64,
+      "x": 165.14,
+      "y": 56.76,
       "param": "VOICE2_WAVE_FM",
       "kind": "wave"
     },
     {
-      "x": 179.8,
-      "y": 89.64,
+      "x": 179.05,
+      "y": 56.76,
       "param": "VOICE2_WAVE_SS",
       "kind": "wave"
     },
     {
-      "x": 193.46,
-      "y": 89.64,
+      "x": 192.96,
+      "y": 56.76,
       "param": "VOICE2_WAVE_PL",
       "kind": "wave"
     },
     {
-      "x": 207.12,
-      "y": 89.64,
+      "x": 206.87,
+      "y": 56.76,
       "param": "VOICE2_ATTACK_PARAM",
       "kind": "knob"
     },
     {
       "x": 220.77,
-      "y": 89.64,
+      "y": 56.76,
       "param": "VOICE2_DECAY_PARAM",
       "kind": "knob"
     },
     {
-      "x": 234.43,
-      "y": 89.64,
+      "x": 234.68,
+      "y": 56.76,
       "param": "VOICE2_SUSTAIN_PARAM",
       "kind": "knob"
     },
     {
-      "x": 248.08,
-      "y": 89.64,
+      "x": 248.59,
+      "y": 56.76,
       "param": "VOICE2_RELEASE_PARAM",
       "kind": "knob"
     },
     {
-      "x": 261.74,
-      "y": 89.64,
+      "x": 262.5,
+      "y": 56.76,
       "param": "VOICE2_TIMBRE_PARAM",
       "kind": "knob"
     }
@@ -249,77 +279,117 @@
   "io": [
     {
       "x": 19.4,
-      "y": 108.02,
+      "y": 19.2,
       "param": "VOCT_INPUT",
       "dir": "in"
     },
     {
       "x": 54.05,
-      "y": 108.02,
+      "y": 19.2,
       "param": "GATE_INPUT",
       "dir": "in"
     },
     {
       "x": 88.69,
-      "y": 108.02,
+      "y": 19.2,
       "param": "VELOCITY_INPUT",
       "dir": "in"
     },
     {
       "x": 123.34,
-      "y": 108.02,
+      "y": 19.2,
       "param": "CLOCK_INPUT",
       "dir": "in"
     },
     {
       "x": 157.98,
-      "y": 108.02,
+      "y": 19.2,
       "param": "VOICE1_OUTPUT",
       "dir": "out"
     },
     {
       "x": 192.63,
-      "y": 108.02,
+      "y": 19.2,
       "param": "VOICE2_OUTPUT",
       "dir": "out"
     },
     {
       "x": 227.27,
-      "y": 108.02,
+      "y": 19.2,
       "param": "MASTER_L_OUTPUT",
       "dir": "out"
     },
     {
       "x": 261.92,
-      "y": 108.02,
+      "y": 19.2,
       "param": "MASTER_R_OUTPUT",
       "dir": "out"
     }
   ],
   "randomize": [
     {
-      "x": 211.55,
-      "y": 20.5,
+      "x": 202.27,
+      "y": 97.18,
       "param": "MELO_PARAM",
-      "name": "MELO"
+      "name": "MELO",
+      "nudge_down": {
+        "x": 198.17,
+        "y": 106.28,
+        "param": "MELO_NUDGE_DOWN"
+      },
+      "nudge_up": {
+        "x": 206.37,
+        "y": 106.28,
+        "param": "MELO_NUDGE_UP"
+      }
     },
     {
-      "x": 243.99,
-      "y": 20.5,
+      "x": 219.27,
+      "y": 97.18,
       "param": "DICE_ARTI",
-      "name": "ARTI"
+      "name": "ARTI",
+      "nudge_down": {
+        "x": 215.17,
+        "y": 106.28,
+        "param": "ARTI_NUDGE_DOWN"
+      },
+      "nudge_up": {
+        "x": 223.37,
+        "y": 106.28,
+        "param": "ARTI_NUDGE_UP"
+      }
     },
     {
-      "x": 211.55,
-      "y": 38.5,
+      "x": 236.27,
+      "y": 97.18,
       "param": "DICE_TIME",
-      "name": "TIME"
+      "name": "TIME",
+      "nudge_down": {
+        "x": 232.17,
+        "y": 106.28,
+        "param": "TIME_NUDGE_DOWN"
+      },
+      "nudge_up": {
+        "x": 240.37,
+        "y": 106.28,
+        "param": "TIME_NUDGE_UP"
+      }
     },
     {
-      "x": 243.99,
-      "y": 38.5,
+      "x": 253.27,
+      "y": 97.18,
       "param": "DICE_NAVY",
-      "name": "NAVY"
+      "name": "NAVY",
+      "nudge_down": {
+        "x": 249.17,
+        "y": 106.28,
+        "param": "NAVY_NUDGE_DOWN"
+      },
+      "nudge_up": {
+        "x": 257.37,
+        "y": 106.28,
+        "param": "NAVY_NUDGE_UP"
+      }
     }
   ]
 }
