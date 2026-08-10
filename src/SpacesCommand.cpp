@@ -133,11 +133,11 @@ struct SceneState {
 struct SpacesCommand : Module {
 	enum ParamId {
 		ENUMS(FADER_PARAM, 8),
-		MELO_PARAM,
+		MELO_PARAM, MELO_NUDGE_DOWN, MELO_NUDGE_UP,
 		SCENE_A_PARAM, SCENE_B_PARAM, MORPH_PARAM,
 		LATCH_PARAM, ARPSEQ_PARAM, POLY_PARAM, FREEZE_PARAM, ROUTING_PARAM,
-		REST_PARAM, DICE_ARTI, LEGATO_PARAM, RATE_PARAM, DICE_TIME,
-		ENTROPY_PARAM, HARMONY_PARAM, CHAOS_PARAM, DICE_NAVY, OCTAVES_PARAM,
+		REST_PARAM, DICE_ARTI, ARTI_NUDGE_DOWN, ARTI_NUDGE_UP, LEGATO_PARAM, RATE_PARAM, DICE_TIME, TIME_NUDGE_DOWN, TIME_NUDGE_UP,
+		ENTROPY_PARAM, HARMONY_PARAM, CHAOS_PARAM, DICE_NAVY, NAVY_NUDGE_DOWN, NAVY_NUDGE_UP, OCTAVES_PARAM,
 		ROOT_KEY_PARAM, SCALE_TYPE_PARAM, DENSITY_PARAM, SWING_PARAM,
 		VOICE1_WAVE_AN, VOICE1_WAVE_FM, VOICE1_WAVE_SS, VOICE1_WAVE_PL,
 		VOICE1_ATTACK_PARAM, VOICE1_DECAY_PARAM, VOICE1_SUSTAIN_PARAM, VOICE1_RELEASE_PARAM, VOICE1_TIMBRE_PARAM,
@@ -165,6 +165,8 @@ struct SpacesCommand : Module {
 	dsp::PulseGenerator gatePulse;
 	dsp::SchmittTrigger sceneATrig, sceneBTrig, clockTrig;
 	dsp::SchmittTrigger diceArtiTrig, diceTimeTrig, diceNavyTrig, meloTrig;
+	dsp::SchmittTrigger meloNudgeDownTrig, meloNudgeUpTrig, artiNudgeDownTrig, artiNudgeUpTrig;
+	dsp::SchmittTrigger timeNudgeDownTrig, timeNudgeUpTrig, navyNudgeDownTrig, navyNudgeUpTrig;
 
 	// Waveform buttons are momentary presses (TL1105) that TOGGLE persisted
 	// state, enforced to always have >=1 active per voice -- fixes the bug
@@ -178,6 +180,8 @@ struct SpacesCommand : Module {
 		for (int i = 0; i < 8; i++)
 			configParam(FADER_PARAM + i, 0.f, 1.f, 1.f, string::f("Step %d probability", i + 1), "%", 0, 100);
 		configButton(MELO_PARAM, "Randomize pattern (MELO)");
+		configButton(MELO_NUDGE_DOWN, "Nudge pattern down");
+		configButton(MELO_NUDGE_UP, "Nudge pattern up");
 		configButton(SCENE_A_PARAM, "Focus Scene A");
 		configButton(SCENE_B_PARAM, "Focus Scene B");
 		configParam(MORPH_PARAM, 0.f, 1.f, 0.f, "Scene morph", "%", 0, 100);
@@ -188,13 +192,19 @@ struct SpacesCommand : Module {
 		configSwitch(ROUTING_PARAM, 0.f, 1.f, 0.f, "Voice routing", {"Together", "Split A\u00b7B"});
 		configParam(REST_PARAM, 0.f, 1.f, 0.1f, "Rest probability", "%", 0, 100);
 		configButton(DICE_ARTI, "Randomize Rest+Legato (ARTI)");
+		configButton(ARTI_NUDGE_DOWN, "Nudge Rest+Legato down");
+		configButton(ARTI_NUDGE_UP, "Nudge Rest+Legato up");
 		configParam(LEGATO_PARAM, 0.f, 1.f, 0.5f, "Legato", "%", 0, 100);
 		configParam(RATE_PARAM, 0.f, 1.f, 0.5f, "Rate", " BPM", 0, 200, 40);
 		configButton(DICE_TIME, "Randomize Rate+Octaves (TIME)");
+		configButton(TIME_NUDGE_DOWN, "Nudge Rate+Octaves down");
+		configButton(TIME_NUDGE_UP, "Nudge Rate+Octaves up");
 		configParam(ENTROPY_PARAM, -1.f, 1.f, 0.f, "Entropy (play direction)");
 		configParam(HARMONY_PARAM, 0.f, 1.f, 0.f, "Harmony");
 		configParam(CHAOS_PARAM, 0.f, 1.f, 0.f, "Chaos");
 		configButton(DICE_NAVY, "Randomize Entropy+Harmony+Chaos (NAVY)");
+		configButton(NAVY_NUDGE_DOWN, "Nudge Entropy+Harmony+Chaos down");
+		configButton(NAVY_NUDGE_UP, "Nudge Entropy+Harmony+Chaos up");
 		configParam(OCTAVES_PARAM, -3.f, 3.f, 0.f, "Octave shift");
 		configParam(ROOT_KEY_PARAM, 0.f, 11.f, 0.f, "Root key");
 		getParamQuantity(ROOT_KEY_PARAM)->snapEnabled = true;
@@ -273,6 +283,34 @@ struct SpacesCommand : Module {
 		params[CHAOS_PARAM].setValue(s.chaos);
 	}
 
+	// Nudge functions: step the SAME parameter cluster its paired dice
+	// button randomizes, by one small fixed increment, clamped to range.
+	static float nudgeClamp(float v, float delta, float lo, float hi) {
+		return clamp(v + delta, lo, hi);
+	}
+
+	void nudgeMelo(float dir) {
+		float step = 0.1f * dir;
+		for (int i = 0; i < 8; i++) {
+			float v = nudgeClamp(params[FADER_PARAM + i].getValue(), step, 0.f, 1.f);
+			params[FADER_PARAM + i].setValue(v);
+		}
+	}
+	void nudgeArti(float dir) {
+		float step = 0.1f * dir;
+		params[REST_PARAM].setValue(nudgeClamp(params[REST_PARAM].getValue(), step, 0.f, 1.f));
+		params[LEGATO_PARAM].setValue(nudgeClamp(params[LEGATO_PARAM].getValue(), step, 0.f, 1.f));
+	}
+	void nudgeTime(float dir) {
+		params[RATE_PARAM].setValue(nudgeClamp(params[RATE_PARAM].getValue(), 0.1f * dir, 0.f, 1.f));
+		params[OCTAVES_PARAM].setValue(nudgeClamp(params[OCTAVES_PARAM].getValue(), 1.f * dir, -3.f, 3.f));
+	}
+	void nudgeNavy(float dir) {
+		params[ENTROPY_PARAM].setValue(nudgeClamp(params[ENTROPY_PARAM].getValue(), 0.15f * dir, -1.f, 1.f));
+		params[HARMONY_PARAM].setValue(nudgeClamp(params[HARMONY_PARAM].getValue(), 0.1f * dir, 0.f, 1.f));
+		params[CHAOS_PARAM].setValue(nudgeClamp(params[CHAOS_PARAM].getValue(), 0.1f * dir, 0.f, 1.f));
+	}
+
 	json_t* dataToJson() override {
 		json_t* rootJ = json_object();
 		json_t* v1J = json_array();
@@ -315,6 +353,14 @@ struct SpacesCommand : Module {
 		if (diceArtiTrig.process(params[DICE_ARTI].getValue())) randomizeArti();
 		if (diceTimeTrig.process(params[DICE_TIME].getValue())) randomizeTime();
 		if (diceNavyTrig.process(params[DICE_NAVY].getValue())) randomizeNavy();
+		if (meloNudgeDownTrig.process(params[MELO_NUDGE_DOWN].getValue())) nudgeMelo(-1.f);
+		if (meloNudgeUpTrig.process(params[MELO_NUDGE_UP].getValue())) nudgeMelo(1.f);
+		if (artiNudgeDownTrig.process(params[ARTI_NUDGE_DOWN].getValue())) nudgeArti(-1.f);
+		if (artiNudgeUpTrig.process(params[ARTI_NUDGE_UP].getValue())) nudgeArti(1.f);
+		if (timeNudgeDownTrig.process(params[TIME_NUDGE_DOWN].getValue())) nudgeTime(-1.f);
+		if (timeNudgeUpTrig.process(params[TIME_NUDGE_UP].getValue())) nudgeTime(1.f);
+		if (navyNudgeDownTrig.process(params[NAVY_NUDGE_DOWN].getValue())) nudgeNavy(-1.f);
+		if (navyNudgeUpTrig.process(params[NAVY_NUDGE_UP].getValue())) nudgeNavy(1.f);
 
 		captureFocusedScene();
 
@@ -475,42 +521,17 @@ struct SpacesCommand : Module {
 // =====================================================================
 struct HCrossfaderHandle : ParamWidget {
 	float trackX0Px = 0.f, trackX1Px = 0.f;
+	float centerY = 0.f;
 
 	HCrossfaderHandle() {
-		box.size = mm2px(Vec(5.4, 8.4));
+		box.size = mm2px(Vec(9.0, 8.4));  // wider cap per explicit request
 	}
 
-	// ParamWidget does not automatically capture drag input -- without
-	// explicitly consuming the left-click here, onDragMove is never called
-	// at all, which was the "crossfader cannot move" bug.
 	void onButton(const ButtonEvent& e) override {
 		ParamWidget::onButton(e);
 		if (e.action == GLFW_PRESS && e.button == GLFW_MOUSE_BUTTON_LEFT) {
 			e.consume(this);
 		}
-	}
-
-	void draw(const DrawArgs& args) override {
-		float v = 0.f;
-		ParamQuantity* pq = getParamQuantity();
-		if (pq) v = (float)pq->getScaledValue();
-		NVGcolor fillA = nvgRGB(0xB8, 0x72, 0x0A);
-		NVGcolor fillB = nvgRGB(0x0E, 0x7A, 0x8C);
-		NVGcolor fill = nvgLerpRGBA(fillA, fillB, v);
-		nvgBeginPath(args.vg);
-		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 2.f);
-		nvgFillColor(args.vg, fill);
-		nvgFill(args.vg);
-		nvgStrokeColor(args.vg, nvgRGB(0x2A, 0x26, 0x20));
-		nvgStrokeWidth(args.vg, 1.1f);
-		nvgStroke(args.vg);
-		// center notch so the cap reads as a fader handle, not a plain block
-		nvgBeginPath(args.vg);
-		nvgMoveTo(args.vg, box.size.x/2, box.size.y*0.25f);
-		nvgLineTo(args.vg, box.size.x/2, box.size.y*0.75f);
-		nvgStrokeColor(args.vg, nvgRGBA(0xFF, 0xFF, 0xFF, 160));
-		nvgStrokeWidth(args.vg, 0.8f);
-		nvgStroke(args.vg);
 	}
 
 	void onDragMove(const DragMoveEvent& e) override {
@@ -522,6 +543,178 @@ struct HCrossfaderHandle : ParamWidget {
 		float delta = e.mouseDelta.x / zoom / trackWidthPx;
 		pq->setScaledValue(clamp((float)pq->getScaledValue() + delta, 0.f, 1.f));
 	}
+
+	// THE ACTUAL FIX: onDragMove only updated the param VALUE -- nothing
+	// ever repositioned the widget itself, so it visually never moved no
+	// matter how the value changed. step() runs every frame and now
+	// re-derives box.pos.x from the current value each time.
+	void step() override {
+		ParamWidget::step();
+		ParamQuantity* pq = getParamQuantity();
+		float v = pq ? (float)pq->getScaledValue() : 0.f;
+		float centerXPx = trackX0Px + (trackX1Px - trackX0Px) * v;
+		box.pos.x = centerXPx - box.size.x / 2.f;
+		box.pos.y = centerY - box.size.y / 2.f;
+	}
+
+	void draw(const DrawArgs& args) override {
+		// blue/black cap per explicit request (was amber/cyan gradient)
+		NVGcolor body = nvgRGB(0x16, 0x18, 0x1E);
+		nvgBeginPath(args.vg);
+		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 2.f);
+		nvgFillColor(args.vg, body);
+		nvgFill(args.vg);
+		nvgStrokeColor(args.vg, nvgRGB(0x2A, 0x4A, 0x7A));
+		nvgStrokeWidth(args.vg, 1.2f);
+		nvgStroke(args.vg);
+		// grip notches
+		for (int i = -1; i <= 1; i++) {
+			nvgBeginPath(args.vg);
+			nvgMoveTo(args.vg, box.size.x/2 + i*2.2f, box.size.y*0.22f);
+			nvgLineTo(args.vg, box.size.x/2 + i*2.2f, box.size.y*0.78f);
+			nvgStrokeColor(args.vg, nvgRGBA(0x4A, 0x6A, 0x9A, 180));
+			nvgStrokeWidth(args.vg, 0.6f);
+			nvgStroke(args.vg);
+		}
+		// embedded LED, glowing blue
+		float cx = box.size.x/2, cy = box.size.y*0.5f;
+		NVGpaint glow = nvgRadialGradient(args.vg, cx, cy, 0.5f, 3.5f, nvgRGBA(0x4A, 0x9A, 0xFF, 220), nvgRGBA(0x4A, 0x9A, 0xFF, 0));
+		nvgBeginPath(args.vg);
+		nvgRect(args.vg, cx-4, cy-4, 8, 8);
+		nvgFillPaint(args.vg, glow);
+		nvgFill(args.vg);
+		nvgBeginPath(args.vg);
+		nvgCircle(args.vg, cx, cy, 1.3f);
+		nvgFillColor(args.vg, nvgRGB(0xB0, 0xE0, 0xFF));
+		nvgFill(args.vg);
+	}
+};
+
+// Renders a single letter centered over another widget (e.g. inside a
+// square button) using NanoVG's runtime text rendering -- this is
+// different from the static panel SVG, which cannot render <text> at
+// all; nvgText() at runtime has no such limitation.
+struct LetterOverlay : TransparentWidget {
+	std::string letter;
+	NVGcolor color;
+
+	LetterOverlay(std::string l, NVGcolor c) : letter(l), color(c) {}
+
+	void draw(const DrawArgs& args) override {
+		std::shared_ptr<window::Font> font = APP->window->loadFont(asset::system("res/fonts/DejaVuSans.ttf"));
+		if (!font || !font->handle) return;
+		nvgFontFaceId(args.vg, font->handle);
+		nvgFontSize(args.vg, 10.f);
+		nvgFillColor(args.vg, color);
+		nvgTextAlign(args.vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+		nvgText(args.vg, box.size.x / 2.f, box.size.y / 2.f, letter.c_str(), NULL);
+	}
+};
+
+// Custom vertical fader -- bigger, more visible cap than the stock
+// LEDSliderGreen, with an embedded LED. Uses the same step()-based
+// repositioning technique as HCrossfaderHandle (drag updates the param
+// value; step() re-derives screen position from that value every frame).
+// Rack's stock RoundBlackKnob is a fixed-size SVG asset -- there's no
+// built-in "85% size" variant. This wraps it with a NanoVG scale
+// transform applied at draw time so the rendered knob is genuinely
+// smaller, while box.size (used for hit-testing/click area) is scaled
+// to match so clicking still lands correctly.
+struct SmallKnob85 : RoundBlackKnob {
+	static constexpr float SCALE = 0.85f;
+	SmallKnob85() {
+		box.size = box.size.mult(SCALE);
+	}
+	void draw(const DrawArgs& args) override {
+		nvgSave(args.vg);
+		nvgTranslate(args.vg, box.size.x / 2.f, box.size.y / 2.f);
+		nvgScale(args.vg, SCALE, SCALE);
+		nvgTranslate(args.vg, -box.size.x / 2.f / SCALE, -box.size.y / 2.f / SCALE);
+		RoundBlackKnob::draw(args);
+		nvgRestore(args.vg);
+	}
+};
+
+// Voice ADSR/Timbre knobs need to be smaller than FEEL's -- an
+// additional 85% on top of SmallKnob85 (0.85*0.85 = ~72% of stock size).
+struct SmallKnobVoice : RoundBlackKnob {
+	static constexpr float SCALE = 0.85f * 0.85f;
+	SmallKnobVoice() {
+		box.size = box.size.mult(SCALE);
+	}
+	void draw(const DrawArgs& args) override {
+		nvgSave(args.vg);
+		nvgTranslate(args.vg, box.size.x / 2.f, box.size.y / 2.f);
+		nvgScale(args.vg, SCALE, SCALE);
+		nvgTranslate(args.vg, -box.size.x / 2.f / SCALE, -box.size.y / 2.f / SCALE);
+		RoundBlackKnob::draw(args);
+		nvgRestore(args.vg);
+	}
+};
+
+struct VFaderHandle : ParamWidget {
+	float trackY0Px = 0.f, trackY1Px = 0.f;  // Y at value=1 (top), value=0 (bottom)
+	float centerX = 0.f;
+
+	VFaderHandle() {
+		box.size = mm2px(Vec(9.5, 7.0));
+	}
+
+	void onButton(const ButtonEvent& e) override {
+		ParamWidget::onButton(e);
+		if (e.action == GLFW_PRESS && e.button == GLFW_MOUSE_BUTTON_LEFT) {
+			e.consume(this);
+		}
+	}
+
+	void onDragMove(const DragMoveEvent& e) override {
+		ParamWidget::onDragMove(e);
+		ParamQuantity* pq = getParamQuantity();
+		if (!pq) return;
+		float zoom = getAbsoluteZoom();
+		float trackLenPx = std::max(1.f, trackY1Px - trackY0Px);
+		// dragging UP (negative mouseDelta.y) should INCREASE the value
+		float delta = -e.mouseDelta.y / zoom / trackLenPx;
+		pq->setScaledValue(clamp((float)pq->getScaledValue() + delta, 0.f, 1.f));
+	}
+
+	void step() override {
+		ParamWidget::step();
+		ParamQuantity* pq = getParamQuantity();
+		float v = pq ? (float)pq->getScaledValue() : 0.f;
+		float centerYPx = trackY1Px + (trackY0Px - trackY1Px) * v;
+		box.pos.x = centerX - box.size.x / 2.f;
+		box.pos.y = centerYPx - box.size.y / 2.f;
+	}
+
+	void draw(const DrawArgs& args) override {
+		NVGcolor body = nvgRGB(0x16, 0x18, 0x1E);
+		nvgBeginPath(args.vg);
+		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 1.8f);
+		nvgFillColor(args.vg, body);
+		nvgFill(args.vg);
+		nvgStrokeColor(args.vg, nvgRGB(0x3A, 0x6A, 0x3A));
+		nvgStrokeWidth(args.vg, 1.1f);
+		nvgStroke(args.vg);
+		for (int i = -1; i <= 1; i++) {
+			nvgBeginPath(args.vg);
+			nvgMoveTo(args.vg, box.size.x*0.2f, box.size.y/2 + i*1.8f);
+			nvgLineTo(args.vg, box.size.x*0.8f, box.size.y/2 + i*1.8f);
+			nvgStrokeColor(args.vg, nvgRGBA(0x4A, 0x9A, 0x4A, 160));
+			nvgStrokeWidth(args.vg, 0.6f);
+			nvgStroke(args.vg);
+		}
+		float cx = box.size.x/2, cy = box.size.y/2;
+		NVGpaint glow = nvgRadialGradient(args.vg, cx, cy, 0.5f, 3.5f, nvgRGBA(0x4A, 0xFF, 0x6A, 200), nvgRGBA(0x4A, 0xFF, 0x6A, 0));
+		nvgBeginPath(args.vg);
+		nvgRect(args.vg, cx-4, cy-4, 8, 8);
+		nvgFillPaint(args.vg, glow);
+		nvgFill(args.vg);
+		nvgBeginPath(args.vg);
+		nvgCircle(args.vg, cx, cy, 1.1f);
+		nvgFillColor(args.vg, nvgRGB(0xC0, 0xFF, 0xC8));
+		nvgFill(args.vg);
+	}
 };
 
 struct SpacesCommandWidget : ModuleWidget {
@@ -529,106 +722,223 @@ struct SpacesCommandWidget : ModuleWidget {
 		setModule(module);
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/SpacesCommand.svg")));
 
-// PATTERN: 8 vertical faders + step lights
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(23.0, 14.7)), module, SpacesCommand::STEP_LIGHTS + 0));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(23.0, 29.5)), module, SpacesCommand::FADER_PARAM + 0));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(44.46, 14.7)), module, SpacesCommand::STEP_LIGHTS + 1));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(44.46, 29.5)), module, SpacesCommand::FADER_PARAM + 1));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(65.92, 14.7)), module, SpacesCommand::STEP_LIGHTS + 2));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(65.92, 29.5)), module, SpacesCommand::FADER_PARAM + 2));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(87.38, 14.7)), module, SpacesCommand::STEP_LIGHTS + 3));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(87.38, 29.5)), module, SpacesCommand::FADER_PARAM + 3));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(108.84, 14.7)), module, SpacesCommand::STEP_LIGHTS + 4));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(108.84, 29.5)), module, SpacesCommand::FADER_PARAM + 4));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(130.3, 14.7)), module, SpacesCommand::STEP_LIGHTS + 5));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(130.3, 29.5)), module, SpacesCommand::FADER_PARAM + 5));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(151.75, 14.7)), module, SpacesCommand::STEP_LIGHTS + 6));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(151.75, 29.5)), module, SpacesCommand::FADER_PARAM + 6));
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(173.21, 14.7)), module, SpacesCommand::STEP_LIGHTS + 7));
-		addParam(createParamCentered<LEDSliderGreen>(mm2px(Vec(173.21, 29.5)), module, SpacesCommand::FADER_PARAM + 7));
+// I/O
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.4, 19.2)), module, SpacesCommand::VOCT_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(54.05, 19.2)), module, SpacesCommand::GATE_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(88.69, 19.2)), module, SpacesCommand::VELOCITY_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(123.34, 19.2)), module, SpacesCommand::CLOCK_INPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(157.98, 19.2)), module, SpacesCommand::VOICE1_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(192.63, 19.2)), module, SpacesCommand::VOICE2_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(227.27, 19.2)), module, SpacesCommand::MASTER_L_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(261.92, 19.2)), module, SpacesCommand::MASTER_R_OUTPUT));
 
-		// PATTERN: grouped randomize buttons (MELO/ARTI/TIME/NAVY), square LEDBezel
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(211.55, 20.5)), module, SpacesCommand::MELO_PARAM));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(243.99, 20.5)), module, SpacesCommand::DICE_ARTI));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(211.55, 38.5)), module, SpacesCommand::DICE_TIME));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(243.99, 38.5)), module, SpacesCommand::DICE_NAVY));
+		// FEEL: macro knobs, 85%-scaled
+		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(21.0, 38.02)), module, SpacesCommand::REST_PARAM));
+		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(43.4, 38.02)), module, SpacesCommand::LEGATO_PARAM));
+		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(65.8, 38.02)), module, SpacesCommand::RATE_PARAM));
+		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(88.2, 38.02)), module, SpacesCommand::ENTROPY_PARAM));
+		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(110.59, 38.02)), module, SpacesCommand::HARMONY_PARAM));
+		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(132.99, 38.02)), module, SpacesCommand::CHAOS_PARAM));
+		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(155.39, 38.02)), module, SpacesCommand::OCTAVES_PARAM));
 
-		// SCENE: A/B focus (square, whole-face red when focused) + custom crossfader fader cap + mode toggles (square, green on/off)
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(19.0, 54.0)), module, SpacesCommand::SCENE_A_PARAM));
-		addChild(createLightCentered<LEDBezelLight<RedLight>>(mm2px(Vec(19.0, 54.0)), module, SpacesCommand::SCENE_A_LIGHT));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(160.19, 54.0)), module, SpacesCommand::SCENE_B_PARAM));
-		addChild(createLightCentered<LEDBezelLight<RedLight>>(mm2px(Vec(160.19, 54.0)), module, SpacesCommand::SCENE_B_LIGHT));
+		// CONTROLS: mode toggles, square, green on/off
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(179.89, 38.02)), module, SpacesCommand::LATCH_PARAM));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(179.89, 38.02)), module, SpacesCommand::LATCH_LIGHT));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(200.25, 38.02)), module, SpacesCommand::ARPSEQ_PARAM));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(200.25, 38.02)), module, SpacesCommand::ARPSEQ_LIGHT));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(220.61, 38.02)), module, SpacesCommand::POLY_PARAM));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(220.61, 38.02)), module, SpacesCommand::POLY_LIGHT));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(240.96, 38.02)), module, SpacesCommand::FREEZE_PARAM));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(240.96, 38.02)), module, SpacesCommand::FREEZE_LIGHT));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(261.32, 38.02)), module, SpacesCommand::ROUTING_PARAM));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(261.32, 38.02)), module, SpacesCommand::ROUTING_LIGHT));
+
+		// VOICE1: square wave buttons + 85%-scaled knobs
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(18.82, 56.76)), module, SpacesCommand::VOICE1_WAVE_AN));
+		addChild(createLightCentered<LEDBezelLight<RedLight>>(mm2px(Vec(18.82, 56.76)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 0));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(32.73, 56.76)), module, SpacesCommand::VOICE1_WAVE_FM));
+		addChild(createLightCentered<LEDBezelLight<YellowLight>>(mm2px(Vec(32.73, 56.76)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 1));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(46.64, 56.76)), module, SpacesCommand::VOICE1_WAVE_SS));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(46.64, 56.76)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 2));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(60.55, 56.76)), module, SpacesCommand::VOICE1_WAVE_PL));
+		addChild(createLightCentered<LEDBezelLight<BlueLight>>(mm2px(Vec(60.55, 56.76)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 3));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(74.45, 56.76)), module, SpacesCommand::VOICE1_ATTACK_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(88.36, 56.76)), module, SpacesCommand::VOICE1_DECAY_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(102.27, 56.76)), module, SpacesCommand::VOICE1_SUSTAIN_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(116.18, 56.76)), module, SpacesCommand::VOICE1_RELEASE_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(130.09, 56.76)), module, SpacesCommand::VOICE1_TIMBRE_PARAM));
+
+		// VOICE2: square wave buttons + 85%-scaled knobs
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(151.23, 56.76)), module, SpacesCommand::VOICE2_WAVE_AN));
+		addChild(createLightCentered<LEDBezelLight<RedLight>>(mm2px(Vec(151.23, 56.76)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 0));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(165.14, 56.76)), module, SpacesCommand::VOICE2_WAVE_FM));
+		addChild(createLightCentered<LEDBezelLight<YellowLight>>(mm2px(Vec(165.14, 56.76)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 1));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(179.05, 56.76)), module, SpacesCommand::VOICE2_WAVE_SS));
+		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(179.05, 56.76)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 2));
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(192.96, 56.76)), module, SpacesCommand::VOICE2_WAVE_PL));
+		addChild(createLightCentered<LEDBezelLight<BlueLight>>(mm2px(Vec(192.96, 56.76)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 3));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(206.87, 56.76)), module, SpacesCommand::VOICE2_ATTACK_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(220.77, 56.76)), module, SpacesCommand::VOICE2_DECAY_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(234.68, 56.76)), module, SpacesCommand::VOICE2_SUSTAIN_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(248.59, 56.76)), module, SpacesCommand::VOICE2_RELEASE_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(262.5, 56.76)), module, SpacesCommand::VOICE2_TIMBRE_PARAM));
+
+		// SCENE: A/B focus (letter inside via NanoVG overlay) + crossfader fader cap, centered, no label
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(20.0, 75.28)), module, SpacesCommand::SCENE_A_PARAM));
+		addChild(createLightCentered<LEDBezelLight<RedLight>>(mm2px(Vec(20.0, 75.28)), module, SpacesCommand::SCENE_A_LIGHT));
 		{
-			auto* xfHandle = createParamCentered<HCrossfaderHandle>(mm2px(Vec((25.6+153.59)/2.f, 54.0)), module, SpacesCommand::MORPH_PARAM);
-			xfHandle->trackX0Px = mm2px(Vec(25.6, 0)).x;
-			xfHandle->trackX1Px = mm2px(Vec(153.59, 0)).x;
+			auto* letterA = new LetterOverlay("A", nvgRGB(0xE8, 0xE8, 0xE8));
+			letterA->box.size = mm2px(Vec(5.2, 5.2));
+			letterA->box.pos = mm2px(Vec(20.0, 75.28)).minus(letterA->box.size.div(2));
+			addChild(letterA);
+		}
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(161.64, 75.28)), module, SpacesCommand::SCENE_B_PARAM));
+		addChild(createLightCentered<LEDBezelLight<RedLight>>(mm2px(Vec(161.64, 75.28)), module, SpacesCommand::SCENE_B_LIGHT));
+		{
+			auto* letterB = new LetterOverlay("B", nvgRGB(0xE8, 0xE8, 0xE8));
+			letterB->box.size = mm2px(Vec(5.2, 5.2));
+			letterB->box.pos = mm2px(Vec(161.64, 75.28)).minus(letterB->box.size.div(2));
+			addChild(letterB);
+		}
+		{
+			auto* xfHandle = createParamCentered<HCrossfaderHandle>(mm2px(Vec((27.6+154.04)/2.f, 75.28)), module, SpacesCommand::MORPH_PARAM);
+			xfHandle->trackX0Px = mm2px(Vec(27.6, 0)).x;
+			xfHandle->trackX1Px = mm2px(Vec(154.04, 0)).x;
+			xfHandle->centerY = mm2px(Vec(0, 75.28)).y;
 			addParam(xfHandle);
 		}
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(186.55, 54.0)), module, SpacesCommand::LATCH_PARAM));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(186.55, 54.0)), module, SpacesCommand::LATCH_LIGHT));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(202.9, 54.0)), module, SpacesCommand::ARPSEQ_PARAM));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(202.9, 54.0)), module, SpacesCommand::ARPSEQ_LIGHT));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(219.26, 54.0)), module, SpacesCommand::POLY_PARAM));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(219.26, 54.0)), module, SpacesCommand::POLY_LIGHT));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(235.61, 54.0)), module, SpacesCommand::FREEZE_PARAM));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(235.61, 54.0)), module, SpacesCommand::FREEZE_LIGHT));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(251.97, 54.0)), module, SpacesCommand::ROUTING_PARAM));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(251.97, 54.0)), module, SpacesCommand::ROUTING_LIGHT));
 
-		// FEEL: macro knobs
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(21.0, 70.58)), module, SpacesCommand::REST_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(45.15, 70.58)), module, SpacesCommand::LEGATO_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(69.29, 70.58)), module, SpacesCommand::RATE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(93.44, 70.58)), module, SpacesCommand::ENTROPY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(117.59, 70.58)), module, SpacesCommand::HARMONY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(141.74, 70.58)), module, SpacesCommand::CHAOS_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(165.88, 70.58)), module, SpacesCommand::OCTAVES_PARAM));
+		// KEY: genuinely smaller stock component (Trimpot), since it needs to be smaller than standard
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(184.14, 73.78)), module, SpacesCommand::ROOT_KEY_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(210.2, 73.78)), module, SpacesCommand::SCALE_TYPE_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(236.26, 73.78)), module, SpacesCommand::DENSITY_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(262.32, 73.78)), module, SpacesCommand::SWING_PARAM));
 
-		// KEY: same knob size as FEEL/DENS/SWING throughout
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(192.38, 70.58)), module, SpacesCommand::ROOT_KEY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(215.03, 70.58)), module, SpacesCommand::SCALE_TYPE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(237.67, 70.58)), module, SpacesCommand::DENSITY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(260.32, 70.58)), module, SpacesCommand::SWING_PARAM));
-
-		// VOICE1: square LEDBezel wave buttons (persisted toggle, green on/off) + knobs
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(19.58, 89.64)), module, SpacesCommand::VOICE1_WAVE_AN));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(19.58, 89.64)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 0));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(33.24, 89.64)), module, SpacesCommand::VOICE1_WAVE_FM));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(33.24, 89.64)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 1));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(46.89, 89.64)), module, SpacesCommand::VOICE1_WAVE_SS));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(46.89, 89.64)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 2));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(60.55, 89.64)), module, SpacesCommand::VOICE1_WAVE_PL));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(60.55, 89.64)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 3));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(74.2, 89.64)), module, SpacesCommand::VOICE1_ATTACK_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(87.86, 89.64)), module, SpacesCommand::VOICE1_DECAY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(101.52, 89.64)), module, SpacesCommand::VOICE1_SUSTAIN_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(115.17, 89.64)), module, SpacesCommand::VOICE1_RELEASE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(128.83, 89.64)), module, SpacesCommand::VOICE1_TIMBRE_PARAM));
-
-		// VOICE2: square LEDBezel wave buttons (persisted toggle, green on/off) + knobs
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(152.49, 89.64)), module, SpacesCommand::VOICE2_WAVE_AN));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(152.49, 89.64)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 0));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(166.15, 89.64)), module, SpacesCommand::VOICE2_WAVE_FM));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(166.15, 89.64)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 1));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(179.8, 89.64)), module, SpacesCommand::VOICE2_WAVE_SS));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(179.8, 89.64)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 2));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(193.46, 89.64)), module, SpacesCommand::VOICE2_WAVE_PL));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(193.46, 89.64)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 3));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(207.12, 89.64)), module, SpacesCommand::VOICE2_ATTACK_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(220.77, 89.64)), module, SpacesCommand::VOICE2_DECAY_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(234.43, 89.64)), module, SpacesCommand::VOICE2_SUSTAIN_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(248.08, 89.64)), module, SpacesCommand::VOICE2_RELEASE_PARAM));
-		addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(261.74, 89.64)), module, SpacesCommand::VOICE2_TIMBRE_PARAM));
-
-		// I/O
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.4, 108.02)), module, SpacesCommand::VOCT_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(54.05, 108.02)), module, SpacesCommand::GATE_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(88.69, 108.02)), module, SpacesCommand::VELOCITY_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(123.34, 108.02)), module, SpacesCommand::CLOCK_INPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(157.98, 108.02)), module, SpacesCommand::VOICE1_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(192.63, 108.02)), module, SpacesCommand::VOICE2_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(227.27, 108.02)), module, SpacesCommand::MASTER_L_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(261.92, 108.02)), module, SpacesCommand::MASTER_R_OUTPUT));
+		// PATTERN: custom vertical faders + step lights + DICE box (randomize + nudge)
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(23.0, 87.48)), module, SpacesCommand::STEP_LIGHTS + 0));
+		{
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(23.0, 101.28)), module, SpacesCommand::FADER_PARAM + 0);
+			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
+			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
+			fader->centerX = mm2px(Vec(23.0, 0)).x;
+			addParam(fader);
+		}
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(44.46, 87.48)), module, SpacesCommand::STEP_LIGHTS + 1));
+		{
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(44.46, 101.28)), module, SpacesCommand::FADER_PARAM + 1);
+			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
+			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
+			fader->centerX = mm2px(Vec(44.46, 0)).x;
+			addParam(fader);
+		}
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(65.92, 87.48)), module, SpacesCommand::STEP_LIGHTS + 2));
+		{
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(65.92, 101.28)), module, SpacesCommand::FADER_PARAM + 2);
+			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
+			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
+			fader->centerX = mm2px(Vec(65.92, 0)).x;
+			addParam(fader);
+		}
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(87.38, 87.48)), module, SpacesCommand::STEP_LIGHTS + 3));
+		{
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(87.38, 101.28)), module, SpacesCommand::FADER_PARAM + 3);
+			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
+			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
+			fader->centerX = mm2px(Vec(87.38, 0)).x;
+			addParam(fader);
+		}
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(108.84, 87.48)), module, SpacesCommand::STEP_LIGHTS + 4));
+		{
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(108.84, 101.28)), module, SpacesCommand::FADER_PARAM + 4);
+			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
+			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
+			fader->centerX = mm2px(Vec(108.84, 0)).x;
+			addParam(fader);
+		}
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(130.3, 87.48)), module, SpacesCommand::STEP_LIGHTS + 5));
+		{
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(130.3, 101.28)), module, SpacesCommand::FADER_PARAM + 5);
+			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
+			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
+			fader->centerX = mm2px(Vec(130.3, 0)).x;
+			addParam(fader);
+		}
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(151.75, 87.48)), module, SpacesCommand::STEP_LIGHTS + 6));
+		{
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(151.75, 101.28)), module, SpacesCommand::FADER_PARAM + 6);
+			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
+			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
+			fader->centerX = mm2px(Vec(151.75, 0)).x;
+			addParam(fader);
+		}
+		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(173.21, 87.48)), module, SpacesCommand::STEP_LIGHTS + 7));
+		{
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(173.21, 101.28)), module, SpacesCommand::FADER_PARAM + 7);
+			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
+			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
+			fader->centerX = mm2px(Vec(173.21, 0)).x;
+			addParam(fader);
+		}
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(202.27, 97.18)), module, SpacesCommand::MELO_PARAM));
+		addParam(createParamCentered<TL1105>(mm2px(Vec(198.17, 106.28)), module, SpacesCommand::MELO_NUDGE_DOWN));
+		{
+			auto* minusLabel = new LetterOverlay("-", nvgRGB(0x2A, 0x26, 0x20));
+			minusLabel->box.size = mm2px(Vec(3.6, 3.6));
+			minusLabel->box.pos = mm2px(Vec(198.17, 106.28)).minus(minusLabel->box.size.div(2));
+			addChild(minusLabel);
+		}
+		addParam(createParamCentered<TL1105>(mm2px(Vec(206.37, 106.28)), module, SpacesCommand::MELO_NUDGE_UP));
+		{
+			auto* plusLabel = new LetterOverlay("+", nvgRGB(0x2A, 0x26, 0x20));
+			plusLabel->box.size = mm2px(Vec(3.6, 3.6));
+			plusLabel->box.pos = mm2px(Vec(206.37, 106.28)).minus(plusLabel->box.size.div(2));
+			addChild(plusLabel);
+		}
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(219.27, 97.18)), module, SpacesCommand::DICE_ARTI));
+		addParam(createParamCentered<TL1105>(mm2px(Vec(215.17, 106.28)), module, SpacesCommand::ARTI_NUDGE_DOWN));
+		{
+			auto* minusLabel = new LetterOverlay("-", nvgRGB(0x2A, 0x26, 0x20));
+			minusLabel->box.size = mm2px(Vec(3.6, 3.6));
+			minusLabel->box.pos = mm2px(Vec(215.17, 106.28)).minus(minusLabel->box.size.div(2));
+			addChild(minusLabel);
+		}
+		addParam(createParamCentered<TL1105>(mm2px(Vec(223.37, 106.28)), module, SpacesCommand::ARTI_NUDGE_UP));
+		{
+			auto* plusLabel = new LetterOverlay("+", nvgRGB(0x2A, 0x26, 0x20));
+			plusLabel->box.size = mm2px(Vec(3.6, 3.6));
+			plusLabel->box.pos = mm2px(Vec(223.37, 106.28)).minus(plusLabel->box.size.div(2));
+			addChild(plusLabel);
+		}
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(236.27, 97.18)), module, SpacesCommand::DICE_TIME));
+		addParam(createParamCentered<TL1105>(mm2px(Vec(232.17, 106.28)), module, SpacesCommand::TIME_NUDGE_DOWN));
+		{
+			auto* minusLabel = new LetterOverlay("-", nvgRGB(0x2A, 0x26, 0x20));
+			minusLabel->box.size = mm2px(Vec(3.6, 3.6));
+			minusLabel->box.pos = mm2px(Vec(232.17, 106.28)).minus(minusLabel->box.size.div(2));
+			addChild(minusLabel);
+		}
+		addParam(createParamCentered<TL1105>(mm2px(Vec(240.37, 106.28)), module, SpacesCommand::TIME_NUDGE_UP));
+		{
+			auto* plusLabel = new LetterOverlay("+", nvgRGB(0x2A, 0x26, 0x20));
+			plusLabel->box.size = mm2px(Vec(3.6, 3.6));
+			plusLabel->box.pos = mm2px(Vec(240.37, 106.28)).minus(plusLabel->box.size.div(2));
+			addChild(plusLabel);
+		}
+		addParam(createParamCentered<LEDBezel>(mm2px(Vec(253.27, 97.18)), module, SpacesCommand::DICE_NAVY));
+		addParam(createParamCentered<TL1105>(mm2px(Vec(249.17, 106.28)), module, SpacesCommand::NAVY_NUDGE_DOWN));
+		{
+			auto* minusLabel = new LetterOverlay("-", nvgRGB(0x2A, 0x26, 0x20));
+			minusLabel->box.size = mm2px(Vec(3.6, 3.6));
+			minusLabel->box.pos = mm2px(Vec(249.17, 106.28)).minus(minusLabel->box.size.div(2));
+			addChild(minusLabel);
+		}
+		addParam(createParamCentered<TL1105>(mm2px(Vec(257.37, 106.28)), module, SpacesCommand::NAVY_NUDGE_UP));
+		{
+			auto* plusLabel = new LetterOverlay("+", nvgRGB(0x2A, 0x26, 0x20));
+			plusLabel->box.size = mm2px(Vec(3.6, 3.6));
+			plusLabel->box.pos = mm2px(Vec(257.37, 106.28)).minus(plusLabel->box.size.div(2));
+			addChild(plusLabel);
+		}
 	}
 };
 
