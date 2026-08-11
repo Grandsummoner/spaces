@@ -156,6 +156,7 @@ struct SpacesCommand : Module {
 
 	SceneState sceneA, sceneB;
 	bool focusB = false;
+	float displayFaderValue[8] = {1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f};  // live scene-blend, for visual morph
 	int currentStep = 0;
 	bool goingForward = true;
 	double phaseAccumSamples = 0.0;
@@ -174,6 +175,14 @@ struct SpacesCommand : Module {
 	bool v1WaveOn[4] = {true, false, false, false};  // AN, FM, SS, PL
 	bool v2WaveOn[4] = {false, false, true, false};
 	dsp::SchmittTrigger v1WaveTrig[4], v2WaveTrig[4];
+
+	// LATCH/ARP-SEQ/POLY/FREEZE/ROUTING are also momentary buttons that
+	// must TOGGLE persisted state -- same bug/fix as the wave buttons.
+	// Previously read directly from the momentary param, so they only
+	// registered "on" while physically held, never actually latched.
+	bool latchOnState = false, arpSeqOnState = false, polyOnState = false;
+	bool freezeOnState = false, routingOnState = false;
+	dsp::SchmittTrigger latchTrig, arpSeqTrig, polyTrig, freezeTrig, routingTrig;
 
 	SpacesCommand() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -321,6 +330,11 @@ struct SpacesCommand : Module {
 		}
 		json_object_set_new(rootJ, "v1WaveOn", v1J);
 		json_object_set_new(rootJ, "v2WaveOn", v2J);
+		json_object_set_new(rootJ, "latchOn", json_boolean(latchOnState));
+		json_object_set_new(rootJ, "arpSeqOn", json_boolean(arpSeqOnState));
+		json_object_set_new(rootJ, "polyOn", json_boolean(polyOnState));
+		json_object_set_new(rootJ, "freezeOn", json_boolean(freezeOnState));
+		json_object_set_new(rootJ, "routingOn", json_boolean(routingOnState));
 		return rootJ;
 	}
 
@@ -331,6 +345,16 @@ struct SpacesCommand : Module {
 			v1WaveOn[i] = json_boolean_value(json_array_get(v1J, i));
 		if (v2J) for (int i = 0; i < 4 && i < (int)json_array_size(v2J); i++)
 			v2WaveOn[i] = json_boolean_value(json_array_get(v2J, i));
+		json_t* latchJ = json_object_get(rootJ, "latchOn");
+		if (latchJ) latchOnState = json_boolean_value(latchJ);
+		json_t* arpSeqJ = json_object_get(rootJ, "arpSeqOn");
+		if (arpSeqJ) arpSeqOnState = json_boolean_value(arpSeqJ);
+		json_t* polyJ = json_object_get(rootJ, "polyOn");
+		if (polyJ) polyOnState = json_boolean_value(polyJ);
+		json_t* freezeJ = json_object_get(rootJ, "freezeOn");
+		if (freezeJ) freezeOnState = json_boolean_value(freezeJ);
+		json_t* routingJ = json_object_get(rootJ, "routingOn");
+		if (routingJ) routingOnState = json_boolean_value(routingJ);
 	}
 
 	void process(const ProcessArgs& args) override {
@@ -343,11 +367,16 @@ struct SpacesCommand : Module {
 		lights[SCENE_B_LIGHT].setBrightness(focusB);
 
 		// Mode toggle LEDs: green when on, unlit when off
-		lights[LATCH_LIGHT].setBrightness(params[LATCH_PARAM].getValue() > 0.5f ? 1.f : 0.f);
-		lights[ARPSEQ_LIGHT].setBrightness(params[ARPSEQ_PARAM].getValue() > 0.5f ? 1.f : 0.f);
-		lights[POLY_LIGHT].setBrightness(params[POLY_PARAM].getValue() > 0.5f ? 1.f : 0.f);
-		lights[FREEZE_LIGHT].setBrightness(params[FREEZE_PARAM].getValue() > 0.5f ? 1.f : 0.f);
-		lights[ROUTING_LIGHT].setBrightness(params[ROUTING_PARAM].getValue() > 0.5f ? 1.f : 0.f);
+		if (latchTrig.process(params[LATCH_PARAM].getValue())) latchOnState = !latchOnState;
+		if (arpSeqTrig.process(params[ARPSEQ_PARAM].getValue())) arpSeqOnState = !arpSeqOnState;
+		if (polyTrig.process(params[POLY_PARAM].getValue())) polyOnState = !polyOnState;
+		if (freezeTrig.process(params[FREEZE_PARAM].getValue())) freezeOnState = !freezeOnState;
+		if (routingTrig.process(params[ROUTING_PARAM].getValue())) routingOnState = !routingOnState;
+		lights[LATCH_LIGHT].setBrightness(latchOnState ? 1.f : 0.f);
+		lights[ARPSEQ_LIGHT].setBrightness(arpSeqOnState ? 1.f : 0.f);
+		lights[POLY_LIGHT].setBrightness(polyOnState ? 1.f : 0.f);
+		lights[FREEZE_LIGHT].setBrightness(freezeOnState ? 1.f : 0.f);
+		lights[ROUTING_LIGHT].setBrightness(routingOnState ? 1.f : 0.f);
 
 		if (meloTrig.process(params[MELO_PARAM].getValue())) randomizeMelo();
 		if (diceArtiTrig.process(params[DICE_ARTI].getValue())) randomizeArti();
@@ -371,6 +400,14 @@ struct SpacesCommand : Module {
 		float octavesF = crossfade(sceneA.octaves, sceneB.octaves, morph);
 		int octaveShift = (int)std::round(octavesF);
 
+		// Live-morph display values: the DSP above already blends Scene A/B
+		// for SOUND, but nothing previously fed that blend back to the
+		// panel, so knobs/faders never visually reflected crossfader
+		// movement. VFaderHandle reads this array (when not being actively
+		// dragged) for its on-screen position.
+		for (int i = 0; i < 8; i++)
+			displayFaderValue[i] = crossfade(sceneA.faders[i], sceneB.faders[i], morph);
+
 		heldNotes.clear();
 		int channels = std::max(inputs[VOCT_INPUT].getChannels(), 1);
 		for (int c = 0; c < channels; c++) {
@@ -379,8 +416,8 @@ struct SpacesCommand : Module {
 				heldNotes.push_back(pitch);
 			}
 		}
-		bool latchOn = params[LATCH_PARAM].getValue() > 0.5f;
-		bool freezeOn = params[FREEZE_PARAM].getValue() > 0.5f;
+		bool latchOn = latchOnState;
+		bool freezeOn = freezeOnState;
 		if (!heldNotes.empty() && latchOn) latchedNotes = heldNotes;
 		std::vector<int>& notesToPlay = latchOn ? latchedNotes : heldNotes;
 
@@ -460,7 +497,7 @@ struct SpacesCommand : Module {
 				voice2.sustain = params[VOICE2_SUSTAIN_PARAM].getValue();
 				voice2.release = params[VOICE2_RELEASE_PARAM].getValue();
 
-				bool split = params[ROUTING_PARAM].getValue() > 0.5f;
+				bool split = routingOnState;
 				if (!split) {
 					// TOGETHER: both voices always fire on every note
 					voice1.triggerNote(pitchVolt);
@@ -524,7 +561,7 @@ struct HCrossfaderHandle : ParamWidget {
 	float centerY = 0.f;
 
 	HCrossfaderHandle() {
-		box.size = mm2px(Vec(9.0, 8.4));  // wider cap per explicit request
+		box.size = mm2px(Vec(9.0, 5.9));  // 30% thinner per explicit request (was 8.4mm tall)
 	}
 
 	void onButton(const ButtonEvent& e) override {
@@ -558,13 +595,13 @@ struct HCrossfaderHandle : ParamWidget {
 	}
 
 	void draw(const DrawArgs& args) override {
-		// blue/black cap per explicit request (was amber/cyan gradient)
-		NVGcolor body = nvgRGB(0x16, 0x18, 0x1E);
+		// distinct purple/amber cap -- different from the faders' black/green
+		NVGcolor body = nvgRGB(0x2E, 0x1A, 0x30);
 		nvgBeginPath(args.vg);
 		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 2.f);
 		nvgFillColor(args.vg, body);
 		nvgFill(args.vg);
-		nvgStrokeColor(args.vg, nvgRGB(0x2A, 0x4A, 0x7A));
+		nvgStrokeColor(args.vg, nvgRGB(0xB8, 0x72, 0x0A));
 		nvgStrokeWidth(args.vg, 1.2f);
 		nvgStroke(args.vg);
 		// grip notches
@@ -572,13 +609,13 @@ struct HCrossfaderHandle : ParamWidget {
 			nvgBeginPath(args.vg);
 			nvgMoveTo(args.vg, box.size.x/2 + i*2.2f, box.size.y*0.22f);
 			nvgLineTo(args.vg, box.size.x/2 + i*2.2f, box.size.y*0.78f);
-			nvgStrokeColor(args.vg, nvgRGBA(0x4A, 0x6A, 0x9A, 180));
+			nvgStrokeColor(args.vg, nvgRGBA(0xC8, 0x8A, 0x2A, 180));
 			nvgStrokeWidth(args.vg, 0.6f);
 			nvgStroke(args.vg);
 		}
-		// embedded LED, glowing blue
+		// embedded LED, glowing amber
 		float cx = box.size.x/2, cy = box.size.y*0.5f;
-		NVGpaint glow = nvgRadialGradient(args.vg, cx, cy, 0.5f, 3.5f, nvgRGBA(0x4A, 0x9A, 0xFF, 220), nvgRGBA(0x4A, 0x9A, 0xFF, 0));
+		NVGpaint glow = nvgRadialGradient(args.vg, cx, cy, 0.5f, 3.5f, nvgRGBA(0xFF, 0xB0, 0x4A, 220), nvgRGBA(0xFF, 0xB0, 0x4A, 0));
 		nvgBeginPath(args.vg);
 		nvgRect(args.vg, cx-4, cy-4, 8, 8);
 		nvgFillPaint(args.vg, glow);
@@ -652,19 +689,89 @@ struct SmallKnobVoice : RoundBlackKnob {
 	}
 };
 
-struct VFaderHandle : ParamWidget {
-	float trackY0Px = 0.f, trackY1Px = 0.f;  // Y at value=1 (top), value=0 (bottom)
-	float centerX = 0.f;
+// Custom square momentary button widget. LEDBezel (used everywhere in
+// earlier passes for "square" buttons) is actually a ROUND stock
+// component -- that was a real mistake, not a style choice. This draws
+// a genuine square, optionally shows a letter baked into the same
+// widget (avoiding a separate overlay's z-order/position risk), and
+// its fill color reflects a paired light's brightness read directly
+// from the module.
+struct SquareButton : ParamWidget {
+	Module* mod = nullptr;
+	int lightId = -1;
+	NVGcolor litColor = nvgRGB(0xE0, 0x40, 0x40);
+	NVGcolor unlitColor = nvgRGB(0x2A, 0x28, 0x24);
+	std::string letter;
+	NVGcolor letterColor = nvgRGB(0xE8, 0xE8, 0xE8);
 
-	VFaderHandle() {
-		box.size = mm2px(Vec(9.5, 7.0));
+	SquareButton() {
+		box.size = mm2px(Vec(6.5, 6.5));
 	}
 
 	void onButton(const ButtonEvent& e) override {
 		ParamWidget::onButton(e);
-		if (e.action == GLFW_PRESS && e.button == GLFW_MOUSE_BUTTON_LEFT) {
-			e.consume(this);
+		if (e.button == GLFW_MOUSE_BUTTON_LEFT) {
+			if (e.action == GLFW_PRESS) {
+				ParamQuantity* pq = getParamQuantity();
+				if (pq) pq->setValue(1.f);
+				e.consume(this);
+			}
 		}
+	}
+
+	void onDragEnd(const DragEndEvent& e) override {
+		ParamWidget::onDragEnd(e);
+		ParamQuantity* pq = getParamQuantity();
+		if (pq) pq->setValue(0.f);
+	}
+
+	void draw(const DrawArgs& args) override {
+		bool lit = false;
+		if (mod && lightId >= 0) lit = mod->lights[lightId].getBrightness() > 0.5f;
+		NVGcolor fill = lit ? litColor : unlitColor;
+		nvgBeginPath(args.vg);
+		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 1.2f);
+		nvgFillColor(args.vg, fill);
+		nvgFill(args.vg);
+		nvgStrokeColor(args.vg, nvgRGB(0x1A, 0x18, 0x14));
+		nvgStrokeWidth(args.vg, 1.0f);
+		nvgStroke(args.vg);
+		if (!letter.empty()) {
+			std::shared_ptr<window::Font> font = APP->window->loadFont(asset::system("res/fonts/DejaVuSans.ttf"));
+			if (font && font->handle) {
+				nvgFontFaceId(args.vg, font->handle);
+				nvgFontSize(args.vg, box.size.y * 0.55f);
+				nvgFillColor(args.vg, letterColor);
+				nvgTextAlign(args.vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+				nvgText(args.vg, box.size.x / 2.f, box.size.y / 2.f, letter.c_str(), NULL);
+			}
+		}
+	}
+};
+
+struct VFaderHandle : ParamWidget {
+	float trackY0Px = 0.f, trackY1Px = 0.f;  // Y at value=1 (top), value=0 (bottom)
+	float centerX = 0.f;
+	float* displayValuePtr = nullptr;  // when set and not dragging, shows the live scene-blend instead of the raw stored value
+	bool dragging = false;
+
+	VFaderHandle() {
+		box.size = mm2px(Vec(9.5, 3.5));  // height halved per explicit request
+	}
+
+	void onButton(const ButtonEvent& e) override {
+		ParamWidget::onButton(e);
+		if (e.button == GLFW_MOUSE_BUTTON_LEFT) {
+			if (e.action == GLFW_PRESS) {
+				dragging = true;
+				e.consume(this);
+			}
+		}
+	}
+
+	void onDragEnd(const DragEndEvent& e) override {
+		ParamWidget::onDragEnd(e);
+		dragging = false;
 	}
 
 	void onDragMove(const DragMoveEvent& e) override {
@@ -680,39 +787,35 @@ struct VFaderHandle : ParamWidget {
 
 	void step() override {
 		ParamWidget::step();
-		ParamQuantity* pq = getParamQuantity();
-		float v = pq ? (float)pq->getScaledValue() : 0.f;
+		float v;
+		if (!dragging && displayValuePtr) {
+			// showing the live Scene A/B blend, not the raw stored value --
+			// this is what makes the fader visually morph as the crossfader moves
+			v = *displayValuePtr;
+		} else {
+			ParamQuantity* pq = getParamQuantity();
+			v = pq ? (float)pq->getScaledValue() : 0.f;
+		}
 		float centerYPx = trackY1Px + (trackY0Px - trackY1Px) * v;
 		box.pos.x = centerX - box.size.x / 2.f;
 		box.pos.y = centerYPx - box.size.y / 2.f;
 	}
 
 	void draw(const DrawArgs& args) override {
-		NVGcolor body = nvgRGB(0x16, 0x18, 0x1E);
+		// black body, translucent glowing LED, per explicit request
+		NVGcolor body = nvgRGBA(0x0A, 0x0A, 0x0C, 255);
 		nvgBeginPath(args.vg);
-		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 1.8f);
+		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 1.2f);
 		nvgFillColor(args.vg, body);
 		nvgFill(args.vg);
-		nvgStrokeColor(args.vg, nvgRGB(0x3A, 0x6A, 0x3A));
-		nvgStrokeWidth(args.vg, 1.1f);
+		nvgStrokeColor(args.vg, nvgRGB(0x2A, 0x2A, 0x2A));
+		nvgStrokeWidth(args.vg, 0.9f);
 		nvgStroke(args.vg);
-		for (int i = -1; i <= 1; i++) {
-			nvgBeginPath(args.vg);
-			nvgMoveTo(args.vg, box.size.x*0.2f, box.size.y/2 + i*1.8f);
-			nvgLineTo(args.vg, box.size.x*0.8f, box.size.y/2 + i*1.8f);
-			nvgStrokeColor(args.vg, nvgRGBA(0x4A, 0x9A, 0x4A, 160));
-			nvgStrokeWidth(args.vg, 0.6f);
-			nvgStroke(args.vg);
-		}
 		float cx = box.size.x/2, cy = box.size.y/2;
-		NVGpaint glow = nvgRadialGradient(args.vg, cx, cy, 0.5f, 3.5f, nvgRGBA(0x4A, 0xFF, 0x6A, 200), nvgRGBA(0x4A, 0xFF, 0x6A, 0));
+		NVGpaint glow = nvgRadialGradient(args.vg, cx, cy, 0.3f, 3.0f, nvgRGBA(0x4A, 0xFF, 0x6A, 130), nvgRGBA(0x4A, 0xFF, 0x6A, 0));
 		nvgBeginPath(args.vg);
-		nvgRect(args.vg, cx-4, cy-4, 8, 8);
+		nvgRect(args.vg, cx-4, cy-2.5f, 8, 5);
 		nvgFillPaint(args.vg, glow);
-		nvgFill(args.vg);
-		nvgBeginPath(args.vg);
-		nvgCircle(args.vg, cx, cy, 1.1f);
-		nvgFillColor(args.vg, nvgRGB(0xC0, 0xFF, 0xC8));
 		nvgFill(args.vg);
 	}
 };
@@ -741,64 +844,129 @@ struct SpacesCommandWidget : ModuleWidget {
 		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(132.99, 38.02)), module, SpacesCommand::CHAOS_PARAM));
 		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(155.39, 38.02)), module, SpacesCommand::OCTAVES_PARAM));
 
-		// CONTROLS: mode toggles, square, green on/off
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(179.89, 38.02)), module, SpacesCommand::LATCH_PARAM));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(179.89, 38.02)), module, SpacesCommand::LATCH_LIGHT));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(200.25, 38.02)), module, SpacesCommand::ARPSEQ_PARAM));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(200.25, 38.02)), module, SpacesCommand::ARPSEQ_LIGHT));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(220.61, 38.02)), module, SpacesCommand::POLY_PARAM));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(220.61, 38.02)), module, SpacesCommand::POLY_LIGHT));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(240.96, 38.02)), module, SpacesCommand::FREEZE_PARAM));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(240.96, 38.02)), module, SpacesCommand::FREEZE_LIGHT));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(261.32, 38.02)), module, SpacesCommand::ROUTING_PARAM));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(261.32, 38.02)), module, SpacesCommand::ROUTING_LIGHT));
+		// CONTROLS: square toggle buttons, green when engaged (real toggle now, not momentary-read)
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(179.89, 38.02)), module, SpacesCommand::LATCH_PARAM);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::LATCH_LIGHT;
+			btn->litColor = nvgRGB(0x4A, 0xC8, 0x5A);
+			addParam(btn);
+		}
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(200.25, 38.02)), module, SpacesCommand::ARPSEQ_PARAM);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::ARPSEQ_LIGHT;
+			btn->litColor = nvgRGB(0x4A, 0xC8, 0x5A);
+			addParam(btn);
+		}
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(220.61, 38.02)), module, SpacesCommand::POLY_PARAM);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::POLY_LIGHT;
+			btn->litColor = nvgRGB(0x4A, 0xC8, 0x5A);
+			addParam(btn);
+		}
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(240.96, 38.02)), module, SpacesCommand::FREEZE_PARAM);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::FREEZE_LIGHT;
+			btn->litColor = nvgRGB(0x4A, 0xC8, 0x5A);
+			addParam(btn);
+		}
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(261.32, 38.02)), module, SpacesCommand::ROUTING_PARAM);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::ROUTING_LIGHT;
+			btn->litColor = nvgRGB(0x4A, 0xC8, 0x5A);
+			addParam(btn);
+		}
 
-		// VOICE1: square wave buttons + 85%-scaled knobs
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(18.82, 56.76)), module, SpacesCommand::VOICE1_WAVE_AN));
-		addChild(createLightCentered<LEDBezelLight<RedLight>>(mm2px(Vec(18.82, 56.76)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 0));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(32.73, 56.76)), module, SpacesCommand::VOICE1_WAVE_FM));
-		addChild(createLightCentered<LEDBezelLight<YellowLight>>(mm2px(Vec(32.73, 56.76)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 1));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(46.64, 56.76)), module, SpacesCommand::VOICE1_WAVE_SS));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(46.64, 56.76)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 2));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(60.55, 56.76)), module, SpacesCommand::VOICE1_WAVE_PL));
-		addChild(createLightCentered<LEDBezelLight<BlueLight>>(mm2px(Vec(60.55, 56.76)), module, SpacesCommand::VOICE1_WAVE_AN_LIGHT + 3));
+		// VOICE1: square wave buttons, 4 distinct colors + 72%-scaled knobs
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(18.82, 56.76)), module, SpacesCommand::VOICE1_WAVE_AN);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::VOICE1_WAVE_AN_LIGHT + 0;
+			btn->litColor = nvgRGB(0xE0,0x50,0x50);
+			addParam(btn);
+		}
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(32.73, 56.76)), module, SpacesCommand::VOICE1_WAVE_FM);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::VOICE1_WAVE_AN_LIGHT + 1;
+			btn->litColor = nvgRGB(0xD8,0xC0,0x30);
+			addParam(btn);
+		}
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(46.64, 56.76)), module, SpacesCommand::VOICE1_WAVE_SS);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::VOICE1_WAVE_AN_LIGHT + 2;
+			btn->litColor = nvgRGB(0x50,0xC8,0x60);
+			addParam(btn);
+		}
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(60.55, 56.76)), module, SpacesCommand::VOICE1_WAVE_PL);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::VOICE1_WAVE_AN_LIGHT + 3;
+			btn->litColor = nvgRGB(0x40,0x90,0xE0);
+			addParam(btn);
+		}
 		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(74.45, 56.76)), module, SpacesCommand::VOICE1_ATTACK_PARAM));
 		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(88.36, 56.76)), module, SpacesCommand::VOICE1_DECAY_PARAM));
 		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(102.27, 56.76)), module, SpacesCommand::VOICE1_SUSTAIN_PARAM));
 		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(116.18, 56.76)), module, SpacesCommand::VOICE1_RELEASE_PARAM));
 		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(130.09, 56.76)), module, SpacesCommand::VOICE1_TIMBRE_PARAM));
 
-		// VOICE2: square wave buttons + 85%-scaled knobs
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(151.23, 56.76)), module, SpacesCommand::VOICE2_WAVE_AN));
-		addChild(createLightCentered<LEDBezelLight<RedLight>>(mm2px(Vec(151.23, 56.76)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 0));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(165.14, 56.76)), module, SpacesCommand::VOICE2_WAVE_FM));
-		addChild(createLightCentered<LEDBezelLight<YellowLight>>(mm2px(Vec(165.14, 56.76)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 1));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(179.05, 56.76)), module, SpacesCommand::VOICE2_WAVE_SS));
-		addChild(createLightCentered<LEDBezelLight<GreenLight>>(mm2px(Vec(179.05, 56.76)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 2));
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(192.96, 56.76)), module, SpacesCommand::VOICE2_WAVE_PL));
-		addChild(createLightCentered<LEDBezelLight<BlueLight>>(mm2px(Vec(192.96, 56.76)), module, SpacesCommand::VOICE2_WAVE_AN_LIGHT + 3));
+		// VOICE2: square wave buttons, 4 distinct colors + 72%-scaled knobs
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(151.23, 56.76)), module, SpacesCommand::VOICE2_WAVE_AN);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::VOICE2_WAVE_AN_LIGHT + 0;
+			btn->litColor = nvgRGB(0xE0,0x50,0x50);
+			addParam(btn);
+		}
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(165.14, 56.76)), module, SpacesCommand::VOICE2_WAVE_FM);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::VOICE2_WAVE_AN_LIGHT + 1;
+			btn->litColor = nvgRGB(0xD8,0xC0,0x30);
+			addParam(btn);
+		}
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(179.05, 56.76)), module, SpacesCommand::VOICE2_WAVE_SS);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::VOICE2_WAVE_AN_LIGHT + 2;
+			btn->litColor = nvgRGB(0x50,0xC8,0x60);
+			addParam(btn);
+		}
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(192.96, 56.76)), module, SpacesCommand::VOICE2_WAVE_PL);
+			btn->mod = module;
+			btn->lightId = SpacesCommand::VOICE2_WAVE_AN_LIGHT + 3;
+			btn->litColor = nvgRGB(0x40,0x90,0xE0);
+			addParam(btn);
+		}
 		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(206.87, 56.76)), module, SpacesCommand::VOICE2_ATTACK_PARAM));
 		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(220.77, 56.76)), module, SpacesCommand::VOICE2_DECAY_PARAM));
 		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(234.68, 56.76)), module, SpacesCommand::VOICE2_SUSTAIN_PARAM));
 		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(248.59, 56.76)), module, SpacesCommand::VOICE2_RELEASE_PARAM));
 		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(262.5, 56.76)), module, SpacesCommand::VOICE2_TIMBRE_PARAM));
 
-		// SCENE: A/B focus (letter inside via NanoVG overlay) + crossfader fader cap, centered, no label
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(20.0, 75.28)), module, SpacesCommand::SCENE_A_PARAM));
-		addChild(createLightCentered<LEDBezelLight<RedLight>>(mm2px(Vec(20.0, 75.28)), module, SpacesCommand::SCENE_A_LIGHT));
+		// SCENE: A/B focus (square, letter baked in, red glow when focused) + crossfader fader cap
 		{
-			auto* letterA = new LetterOverlay("A", nvgRGB(0xE8, 0xE8, 0xE8));
-			letterA->box.size = mm2px(Vec(5.2, 5.2));
-			letterA->box.pos = mm2px(Vec(20.0, 75.28)).minus(letterA->box.size.div(2));
-			addChild(letterA);
+			auto* btnA = createParamCentered<SquareButton>(mm2px(Vec(20.0, 75.28)), module, SpacesCommand::SCENE_A_PARAM);
+			btnA->mod = module;
+			btnA->lightId = SpacesCommand::SCENE_A_LIGHT;
+			btnA->litColor = nvgRGB(0xE0, 0x40, 0x40);
+			btnA->letter = "A";
+			addParam(btnA);
 		}
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(161.64, 75.28)), module, SpacesCommand::SCENE_B_PARAM));
-		addChild(createLightCentered<LEDBezelLight<RedLight>>(mm2px(Vec(161.64, 75.28)), module, SpacesCommand::SCENE_B_LIGHT));
 		{
-			auto* letterB = new LetterOverlay("B", nvgRGB(0xE8, 0xE8, 0xE8));
-			letterB->box.size = mm2px(Vec(5.2, 5.2));
-			letterB->box.pos = mm2px(Vec(161.64, 75.28)).minus(letterB->box.size.div(2));
-			addChild(letterB);
+			auto* btnB = createParamCentered<SquareButton>(mm2px(Vec(161.64, 75.28)), module, SpacesCommand::SCENE_B_PARAM);
+			btnB->mod = module;
+			btnB->lightId = SpacesCommand::SCENE_B_LIGHT;
+			btnB->litColor = nvgRGB(0xE0, 0x40, 0x40);
+			btnB->letter = "B";
+			addParam(btnB);
 		}
 		{
 			auto* xfHandle = createParamCentered<HCrossfaderHandle>(mm2px(Vec((27.6+154.04)/2.f, 75.28)), module, SpacesCommand::MORPH_PARAM);
@@ -808,19 +976,20 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(xfHandle);
 		}
 
-		// KEY: genuinely smaller stock component (Trimpot), since it needs to be smaller than standard
+		// KEY: genuinely smaller stock component (Trimpot)
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(184.14, 73.78)), module, SpacesCommand::ROOT_KEY_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(210.2, 73.78)), module, SpacesCommand::SCALE_TYPE_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(236.26, 73.78)), module, SpacesCommand::DENSITY_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(262.32, 73.78)), module, SpacesCommand::SWING_PARAM));
 
-		// PATTERN: custom vertical faders + step lights + DICE box (randomize + nudge)
+		// PATTERN: custom vertical faders (live scene-morph display) + step lights + DICE box
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(23.0, 87.48)), module, SpacesCommand::STEP_LIGHTS + 0));
 		{
 			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(23.0, 101.28)), module, SpacesCommand::FADER_PARAM + 0);
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(23.0, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[0];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(44.46, 87.48)), module, SpacesCommand::STEP_LIGHTS + 1));
@@ -829,6 +998,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(44.46, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[1];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(65.92, 87.48)), module, SpacesCommand::STEP_LIGHTS + 2));
@@ -837,6 +1007,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(65.92, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[2];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(87.38, 87.48)), module, SpacesCommand::STEP_LIGHTS + 3));
@@ -845,6 +1016,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(87.38, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[3];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(108.84, 87.48)), module, SpacesCommand::STEP_LIGHTS + 4));
@@ -853,6 +1025,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(108.84, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[4];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(130.3, 87.48)), module, SpacesCommand::STEP_LIGHTS + 5));
@@ -861,6 +1034,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(130.3, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[5];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(151.75, 87.48)), module, SpacesCommand::STEP_LIGHTS + 6));
@@ -869,6 +1043,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(151.75, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[6];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(173.21, 87.48)), module, SpacesCommand::STEP_LIGHTS + 7));
@@ -877,68 +1052,70 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(173.21, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[7];
 			addParam(fader);
 		}
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(202.27, 97.18)), module, SpacesCommand::MELO_PARAM));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(198.17, 106.28)), module, SpacesCommand::MELO_NUDGE_DOWN));
+		addParam(createParamCentered<SquareButton>(mm2px(Vec(202.27, 97.18)), module, SpacesCommand::MELO_PARAM));
 		{
-			auto* minusLabel = new LetterOverlay("-", nvgRGB(0x2A, 0x26, 0x20));
-			minusLabel->box.size = mm2px(Vec(3.6, 3.6));
-			minusLabel->box.pos = mm2px(Vec(198.17, 106.28)).minus(minusLabel->box.size.div(2));
-			addChild(minusLabel);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(198.17, 106.28)), module, SpacesCommand::MELO_NUDGE_DOWN);
+			btn->box.size = mm2px(Vec(3.6, 3.6));
+			btn->box.pos = mm2px(Vec(198.17, 106.28)).minus(btn->box.size.div(2));
+			btn->letter = "-";
+			addParam(btn);
 		}
-		addParam(createParamCentered<TL1105>(mm2px(Vec(206.37, 106.28)), module, SpacesCommand::MELO_NUDGE_UP));
 		{
-			auto* plusLabel = new LetterOverlay("+", nvgRGB(0x2A, 0x26, 0x20));
-			plusLabel->box.size = mm2px(Vec(3.6, 3.6));
-			plusLabel->box.pos = mm2px(Vec(206.37, 106.28)).minus(plusLabel->box.size.div(2));
-			addChild(plusLabel);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(206.37, 106.28)), module, SpacesCommand::MELO_NUDGE_UP);
+			btn->box.size = mm2px(Vec(3.6, 3.6));
+			btn->box.pos = mm2px(Vec(206.37, 106.28)).minus(btn->box.size.div(2));
+			btn->letter = "+";
+			addParam(btn);
 		}
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(219.27, 97.18)), module, SpacesCommand::DICE_ARTI));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(215.17, 106.28)), module, SpacesCommand::ARTI_NUDGE_DOWN));
+		addParam(createParamCentered<SquareButton>(mm2px(Vec(219.27, 97.18)), module, SpacesCommand::DICE_ARTI));
 		{
-			auto* minusLabel = new LetterOverlay("-", nvgRGB(0x2A, 0x26, 0x20));
-			minusLabel->box.size = mm2px(Vec(3.6, 3.6));
-			minusLabel->box.pos = mm2px(Vec(215.17, 106.28)).minus(minusLabel->box.size.div(2));
-			addChild(minusLabel);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(215.17, 106.28)), module, SpacesCommand::ARTI_NUDGE_DOWN);
+			btn->box.size = mm2px(Vec(3.6, 3.6));
+			btn->box.pos = mm2px(Vec(215.17, 106.28)).minus(btn->box.size.div(2));
+			btn->letter = "-";
+			addParam(btn);
 		}
-		addParam(createParamCentered<TL1105>(mm2px(Vec(223.37, 106.28)), module, SpacesCommand::ARTI_NUDGE_UP));
 		{
-			auto* plusLabel = new LetterOverlay("+", nvgRGB(0x2A, 0x26, 0x20));
-			plusLabel->box.size = mm2px(Vec(3.6, 3.6));
-			plusLabel->box.pos = mm2px(Vec(223.37, 106.28)).minus(plusLabel->box.size.div(2));
-			addChild(plusLabel);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(223.37, 106.28)), module, SpacesCommand::ARTI_NUDGE_UP);
+			btn->box.size = mm2px(Vec(3.6, 3.6));
+			btn->box.pos = mm2px(Vec(223.37, 106.28)).minus(btn->box.size.div(2));
+			btn->letter = "+";
+			addParam(btn);
 		}
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(236.27, 97.18)), module, SpacesCommand::DICE_TIME));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(232.17, 106.28)), module, SpacesCommand::TIME_NUDGE_DOWN));
+		addParam(createParamCentered<SquareButton>(mm2px(Vec(236.27, 97.18)), module, SpacesCommand::DICE_TIME));
 		{
-			auto* minusLabel = new LetterOverlay("-", nvgRGB(0x2A, 0x26, 0x20));
-			minusLabel->box.size = mm2px(Vec(3.6, 3.6));
-			minusLabel->box.pos = mm2px(Vec(232.17, 106.28)).minus(minusLabel->box.size.div(2));
-			addChild(minusLabel);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(232.17, 106.28)), module, SpacesCommand::TIME_NUDGE_DOWN);
+			btn->box.size = mm2px(Vec(3.6, 3.6));
+			btn->box.pos = mm2px(Vec(232.17, 106.28)).minus(btn->box.size.div(2));
+			btn->letter = "-";
+			addParam(btn);
 		}
-		addParam(createParamCentered<TL1105>(mm2px(Vec(240.37, 106.28)), module, SpacesCommand::TIME_NUDGE_UP));
 		{
-			auto* plusLabel = new LetterOverlay("+", nvgRGB(0x2A, 0x26, 0x20));
-			plusLabel->box.size = mm2px(Vec(3.6, 3.6));
-			plusLabel->box.pos = mm2px(Vec(240.37, 106.28)).minus(plusLabel->box.size.div(2));
-			addChild(plusLabel);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(240.37, 106.28)), module, SpacesCommand::TIME_NUDGE_UP);
+			btn->box.size = mm2px(Vec(3.6, 3.6));
+			btn->box.pos = mm2px(Vec(240.37, 106.28)).minus(btn->box.size.div(2));
+			btn->letter = "+";
+			addParam(btn);
 		}
-		addParam(createParamCentered<LEDBezel>(mm2px(Vec(253.27, 97.18)), module, SpacesCommand::DICE_NAVY));
-		addParam(createParamCentered<TL1105>(mm2px(Vec(249.17, 106.28)), module, SpacesCommand::NAVY_NUDGE_DOWN));
+		addParam(createParamCentered<SquareButton>(mm2px(Vec(253.27, 97.18)), module, SpacesCommand::DICE_NAVY));
 		{
-			auto* minusLabel = new LetterOverlay("-", nvgRGB(0x2A, 0x26, 0x20));
-			minusLabel->box.size = mm2px(Vec(3.6, 3.6));
-			minusLabel->box.pos = mm2px(Vec(249.17, 106.28)).minus(minusLabel->box.size.div(2));
-			addChild(minusLabel);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(249.17, 106.28)), module, SpacesCommand::NAVY_NUDGE_DOWN);
+			btn->box.size = mm2px(Vec(3.6, 3.6));
+			btn->box.pos = mm2px(Vec(249.17, 106.28)).minus(btn->box.size.div(2));
+			btn->letter = "-";
+			addParam(btn);
 		}
-		addParam(createParamCentered<TL1105>(mm2px(Vec(257.37, 106.28)), module, SpacesCommand::NAVY_NUDGE_UP));
 		{
-			auto* plusLabel = new LetterOverlay("+", nvgRGB(0x2A, 0x26, 0x20));
-			plusLabel->box.size = mm2px(Vec(3.6, 3.6));
-			plusLabel->box.pos = mm2px(Vec(257.37, 106.28)).minus(plusLabel->box.size.div(2));
-			addChild(plusLabel);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(257.37, 106.28)), module, SpacesCommand::NAVY_NUDGE_UP);
+			btn->box.size = mm2px(Vec(3.6, 3.6));
+			btn->box.pos = mm2px(Vec(257.37, 106.28)).minus(btn->box.size.div(2));
+			btn->letter = "+";
+			addParam(btn);
 		}
+
 	}
 };
 
