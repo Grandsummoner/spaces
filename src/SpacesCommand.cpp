@@ -395,6 +395,11 @@ struct SpacesCommand : Module {
 
 		float morph = params[MORPH_PARAM].getValue();
 		float rest = crossfade(sceneA.rest, sceneB.rest, morph);
+		float legato = crossfade(sceneA.legato, sceneB.legato, morph);
+		// Matches the original VST exactly: high legato suppresses rest
+		// probability, making playback flow more connected. Previously
+		// captured but never applied -- a dead knob.
+		if (legato >= 0.8f) rest = rest * clamp((1.f - legato) / 0.2f, 0.f, 1.f);
 		float rate01 = crossfade(sceneA.rate, sceneB.rate, morph);
 		float entropy = crossfade(sceneA.entropy, sceneB.entropy, morph);
 		float octavesF = crossfade(sceneA.octaves, sceneB.octaves, morph);
@@ -484,6 +489,10 @@ struct SpacesCommand : Module {
 					pitch = notesToPlay[localStep % notesToPlay.size()] + 12 * octaveShift;
 				else
 					pitch = 48 + rootKeyIdx + scaleOffsets[localStep % (int)scaleOffsets.size()] + 12 * octaveShift;
+				// Matches the original VST's juce::jlimit(0, 127, ...) -- our port was
+				// missing this clamp entirely, allowing pitch to run arbitrarily high
+				// when root+scale+octave stacked up.
+				pitch = clamp(pitch, 0, 127);
 
 				float pitchVolt = (pitch - 60) / 12.f;
 				gatePulse.trigger(1e-3f);
@@ -969,9 +978,9 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(btnB);
 		}
 		{
-			auto* xfHandle = createParamCentered<HCrossfaderHandle>(mm2px(Vec((27.6+154.04)/2.f, 75.28)), module, SpacesCommand::MORPH_PARAM);
-			xfHandle->trackX0Px = mm2px(Vec(27.6, 0)).x;
-			xfHandle->trackX1Px = mm2px(Vec(154.04, 0)).x;
+			auto* xfHandle = createParamCentered<HCrossfaderHandle>(mm2px(Vec((30.75+150.89)/2.f, 75.28)), module, SpacesCommand::MORPH_PARAM);
+			xfHandle->trackX0Px = mm2px(Vec(30.75, 0)).x;
+			xfHandle->trackX1Px = mm2px(Vec(150.89, 0)).x;
 			xfHandle->centerY = mm2px(Vec(0, 75.28)).y;
 			addParam(xfHandle);
 		}
