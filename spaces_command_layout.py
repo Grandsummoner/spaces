@@ -236,8 +236,11 @@ cx0, cy0, cw0, ch0, _ = sections["crossfader"]
 ctrl_y2 = cy0 + ch0 / 2   # no label reserved in this row anymore -- just center in the full box
 a_x = cx0 + 7
 b_x = cx0 + cw0 - 7
-track_x0 = a_x + R["bezel"] + 5
-track_x1 = b_x - R["bezel"] - 5
+button_half_w = 3.25   # actual SquareButton half-size (6.5mm)
+handle_half_w = 4.5    # crossfader handle half-width (9mm)
+visual_gap = 3.0        # explicit breathing room requested
+track_x0 = a_x + button_half_w + handle_half_w + visual_gap
+track_x1 = b_x - button_half_w - handle_half_w - visual_gap
 grad_id = "xfgrad"
 svg.insert(3, f'<linearGradient id="{grad_id}" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="{AMBER}" stop-opacity="0.30"/><stop offset="100%" stop-color="{CYAN}" stop-opacity="0.30"/></linearGradient>')
 add(f'<rect x="{track_x0}" y="{ctrl_y2-R["track_half"]}" width="{track_x1-track_x0}" height="{R["track_half"]*2}" rx="{R["track_half"]}" fill="url(#{grad_id})"/>')
