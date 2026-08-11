@@ -32,7 +32,7 @@ R = {
     "port":       26 / 2 / (75/25.4),
     "light":      1.0,
     "fader_half": 12.0,
-    "track_half": 1.5,     # 50% thinner per explicit request (was 3.0)
+    "track_half": 1.05,     # another 30% thinner per explicit request (was 1.5)
 }
 
 BG, BG2 = "#F4F1EA", "#E9E4D8"
