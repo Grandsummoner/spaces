@@ -156,7 +156,9 @@ struct SpacesCommand : Module {
 
 	SceneState sceneA, sceneB;
 	bool focusB = false;
-	float displayFaderValue[8] = {1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f};  // live scene-blend, for visual morph
+	float displayFaderValue[8] = {1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f};  // live scene-BLEND, shown only while the crossfader itself is being dragged
+	float focusedFaderValue[8] = {1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f};  // focused scene's RAW value, shown at rest
+	bool crossfaderDragging = false;
 	int currentStep = 0;
 	bool goingForward = true;
 	double phaseAccumSamples = 0.0;
@@ -405,13 +407,19 @@ struct SpacesCommand : Module {
 		float octavesF = crossfade(sceneA.octaves, sceneB.octaves, morph);
 		int octaveShift = (int)std::round(octavesF);
 
-		// Live-morph display values: the DSP above already blends Scene A/B
-		// for SOUND, but nothing previously fed that blend back to the
-		// panel, so knobs/faders never visually reflected crossfader
-		// movement. VFaderHandle reads this array (when not being actively
-		// dragged) for its on-screen position.
-		for (int i = 0; i < 8; i++)
+		// Two display values per fader, for two different situations:
+		// - focusedFaderValue: the FOCUSED scene's raw stored value, shown
+		//   at rest -- this is "what you're editing," matches the original
+		//   VST's behavior of the panel always showing the focused scene.
+		// - displayFaderValue: the live Scene A/B BLEND, shown only while
+		//   the crossfader itself is being actively dragged, as a sweep
+		//   preview. Showing the blend at rest was the bug: any edit to the
+		//   focused scene got diluted against the other (default, untouched)
+		//   scene the instant you released the fader, looking like a jump.
+		for (int i = 0; i < 8; i++) {
+			focusedFaderValue[i] = focusB ? sceneB.faders[i] : sceneA.faders[i];
 			displayFaderValue[i] = crossfade(sceneA.faders[i], sceneB.faders[i], morph);
+		}
 
 		heldNotes.clear();
 		int channels = std::max(inputs[VOCT_INPUT].getChannels(), 1);
@@ -568,6 +576,7 @@ struct SpacesCommand : Module {
 struct HCrossfaderHandle : ParamWidget {
 	float trackX0Px = 0.f, trackX1Px = 0.f;
 	float centerY = 0.f;
+	Module* mod = nullptr;
 
 	HCrossfaderHandle() {
 		box.size = mm2px(Vec(9.0, 5.9));  // 30% thinner per explicit request (was 8.4mm tall)
@@ -577,7 +586,13 @@ struct HCrossfaderHandle : ParamWidget {
 		ParamWidget::onButton(e);
 		if (e.action == GLFW_PRESS && e.button == GLFW_MOUSE_BUTTON_LEFT) {
 			e.consume(this);
+			if (mod) static_cast<SpacesCommand*>(mod)->crossfaderDragging = true;
 		}
+	}
+
+	void onDragEnd(const DragEndEvent& e) override {
+		ParamWidget::onDragEnd(e);
+		if (mod) static_cast<SpacesCommand*>(mod)->crossfaderDragging = false;
 	}
 
 	void onDragMove(const DragMoveEvent& e) override {
@@ -761,8 +776,10 @@ struct SquareButton : ParamWidget {
 struct VFaderHandle : ParamWidget {
 	float trackY0Px = 0.f, trackY1Px = 0.f;  // Y at value=1 (top), value=0 (bottom)
 	float centerX = 0.f;
-	float* displayValuePtr = nullptr;  // when set and not dragging, shows the live scene-blend instead of the raw stored value
-	bool dragging = false;
+	float* displayValuePtr = nullptr;      // live Scene A/B blend -- shown only while the CROSSFADER is being dragged (sweep preview)
+	float* focusedValuePtr = nullptr;      // focused scene's raw value -- shown at rest (this is what you're editing)
+	bool* crossfaderDraggingPtr = nullptr; // whether the crossfader itself is currently being dragged
+	bool dragging = false;                 // whether THIS fader is currently being dragged
 
 	VFaderHandle() {
 		box.size = mm2px(Vec(9.5, 3.5));  // height halved per explicit request
@@ -797,10 +814,19 @@ struct VFaderHandle : ParamWidget {
 	void step() override {
 		ParamWidget::step();
 		float v;
-		if (!dragging && displayValuePtr) {
-			// showing the live Scene A/B blend, not the raw stored value --
-			// this is what makes the fader visually morph as the crossfader moves
+		if (dragging) {
+			// this fader's own live drag -- always show exactly what's being set
+			ParamQuantity* pq = getParamQuantity();
+			v = pq ? (float)pq->getScaledValue() : 0.f;
+		} else if (crossfaderDraggingPtr && *crossfaderDraggingPtr && displayValuePtr) {
+			// crossfader itself is being swept -- preview the live blend
 			v = *displayValuePtr;
+		} else if (focusedValuePtr) {
+			// at rest -- show the focused scene's raw stored value, not a
+			// blend. Showing the blend at rest was the bug: any edit to the
+			// focused scene got diluted against the other (untouched) scene
+			// the instant you released the fader, looking like it "jumped".
+			v = *focusedValuePtr;
 		} else {
 			ParamQuantity* pq = getParamQuantity();
 			v = pq ? (float)pq->getScaledValue() : 0.f;
@@ -982,6 +1008,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			xfHandle->trackX0Px = mm2px(Vec(30.75, 0)).x;
 			xfHandle->trackX1Px = mm2px(Vec(150.89, 0)).x;
 			xfHandle->centerY = mm2px(Vec(0, 75.28)).y;
+			xfHandle->mod = module;
 			addParam(xfHandle);
 		}
 
@@ -998,7 +1025,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(23.0, 0)).x;
-			if (module) fader->displayValuePtr = &module->displayFaderValue[0];
+			if (module) { fader->displayValuePtr = &module->displayFaderValue[0]; fader->focusedValuePtr = &module->focusedFaderValue[0]; fader->crossfaderDraggingPtr = &module->crossfaderDragging; }
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(44.46, 87.48)), module, SpacesCommand::STEP_LIGHTS + 1));
@@ -1007,7 +1034,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(44.46, 0)).x;
-			if (module) fader->displayValuePtr = &module->displayFaderValue[1];
+			if (module) { fader->displayValuePtr = &module->displayFaderValue[1]; fader->focusedValuePtr = &module->focusedFaderValue[1]; fader->crossfaderDraggingPtr = &module->crossfaderDragging; }
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(65.92, 87.48)), module, SpacesCommand::STEP_LIGHTS + 2));
@@ -1016,7 +1043,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(65.92, 0)).x;
-			if (module) fader->displayValuePtr = &module->displayFaderValue[2];
+			if (module) { fader->displayValuePtr = &module->displayFaderValue[2]; fader->focusedValuePtr = &module->focusedFaderValue[2]; fader->crossfaderDraggingPtr = &module->crossfaderDragging; }
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(87.38, 87.48)), module, SpacesCommand::STEP_LIGHTS + 3));
@@ -1025,7 +1052,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(87.38, 0)).x;
-			if (module) fader->displayValuePtr = &module->displayFaderValue[3];
+			if (module) { fader->displayValuePtr = &module->displayFaderValue[3]; fader->focusedValuePtr = &module->focusedFaderValue[3]; fader->crossfaderDraggingPtr = &module->crossfaderDragging; }
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(108.84, 87.48)), module, SpacesCommand::STEP_LIGHTS + 4));
@@ -1034,7 +1061,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(108.84, 0)).x;
-			if (module) fader->displayValuePtr = &module->displayFaderValue[4];
+			if (module) { fader->displayValuePtr = &module->displayFaderValue[4]; fader->focusedValuePtr = &module->focusedFaderValue[4]; fader->crossfaderDraggingPtr = &module->crossfaderDragging; }
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(130.3, 87.48)), module, SpacesCommand::STEP_LIGHTS + 5));
@@ -1043,7 +1070,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(130.3, 0)).x;
-			if (module) fader->displayValuePtr = &module->displayFaderValue[5];
+			if (module) { fader->displayValuePtr = &module->displayFaderValue[5]; fader->focusedValuePtr = &module->focusedFaderValue[5]; fader->crossfaderDraggingPtr = &module->crossfaderDragging; }
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(151.75, 87.48)), module, SpacesCommand::STEP_LIGHTS + 6));
@@ -1052,7 +1079,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(151.75, 0)).x;
-			if (module) fader->displayValuePtr = &module->displayFaderValue[6];
+			if (module) { fader->displayValuePtr = &module->displayFaderValue[6]; fader->focusedValuePtr = &module->focusedFaderValue[6]; fader->crossfaderDraggingPtr = &module->crossfaderDragging; }
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(173.21, 87.48)), module, SpacesCommand::STEP_LIGHTS + 7));
@@ -1061,7 +1088,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(173.21, 0)).x;
-			if (module) fader->displayValuePtr = &module->displayFaderValue[7];
+			if (module) { fader->displayValuePtr = &module->displayFaderValue[7]; fader->focusedValuePtr = &module->focusedFaderValue[7]; fader->crossfaderDraggingPtr = &module->crossfaderDragging; }
 			addParam(fader);
 		}
 		addParam(createParamCentered<SquareButton>(mm2px(Vec(202.27, 97.18)), module, SpacesCommand::MELO_PARAM));
