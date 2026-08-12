@@ -266,6 +266,24 @@ struct SpacesCommand : Module {
 		s.octaves = params[OCTAVES_PARAM].getValue();
 	}
 
+	// The missing counterpart to captureFocusedScene(): pushes a scene's
+	// STORED data into the live params. Without this, switching focus left
+	// the panel showing the PREVIOUS scene's leftover values, and the next
+	// captureFocusedScene() call would immediately overwrite the newly
+	// focused scene with those leftovers -- silently collapsing both scenes
+	// to identical data after a couple of focus switches, which is why
+	// crossfading eventually produced no audible/visual difference at all.
+	void loadSceneIntoParams(const SceneState& s) {
+		for (int i = 0; i < 8; i++) params[FADER_PARAM + i].setValue(s.faders[i]);
+		params[REST_PARAM].setValue(s.rest);
+		params[LEGATO_PARAM].setValue(s.legato);
+		params[RATE_PARAM].setValue(s.rate);
+		params[ENTROPY_PARAM].setValue(s.entropy);
+		params[HARMONY_PARAM].setValue(s.harmony);
+		params[CHAOS_PARAM].setValue(s.chaos);
+		params[OCTAVES_PARAM].setValue(s.octaves);
+	}
+
 	void randomizeMelo() {
 		SceneState& s = focusB ? sceneB : sceneA;
 		for (int i = 0; i < 8; i++) {
@@ -363,8 +381,8 @@ struct SpacesCommand : Module {
 		voice1.sampleRate = args.sampleRate;
 		voice2.sampleRate = args.sampleRate;
 
-		if (sceneATrig.process(params[SCENE_A_PARAM].getValue())) focusB = false;
-		if (sceneBTrig.process(params[SCENE_B_PARAM].getValue())) focusB = true;
+		if (sceneATrig.process(params[SCENE_A_PARAM].getValue())) { focusB = false; loadSceneIntoParams(sceneA); }
+		if (sceneBTrig.process(params[SCENE_B_PARAM].getValue())) { focusB = true; loadSceneIntoParams(sceneB); }
 		lights[SCENE_A_LIGHT].setBrightness(!focusB);
 		lights[SCENE_B_LIGHT].setBrightness(focusB);
 
