@@ -156,9 +156,15 @@ struct SpacesCommand : Module {
 
 	SceneState sceneA, sceneB;
 	bool focusB = false;
-	// (Blend-preview display arrays removed -- confirmed against the original
-	// VST source that it has no live crossfader-drag preview; the panel
-	// always shows the focused scene directly, updating on scene switch.)
+	// Live Scene A/B blend, computed every process() tick for every
+	// scene-scoped control (8 faders + the 7 FEEL knobs below), matching
+	// the original VST's timerCallback exactly: any control not currently
+	// grabbed by the mouse continuously shows interpolate(sceneA, sceneB,
+	// morph). The underlying param is untouched by this -- it's the true
+	// edit target -- these arrays are display-only.
+	float displayFaderValue[8] = {1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f};
+	float displayRest = 0.1f, displayLegato = 0.5f, displayRate = 0.5f;
+	float displayEntropy = 0.f, displayHarmony = 0.f, displayChaos = 0.f, displayOctaves = 0.f;
 	int currentStep = 0;
 	bool goingForward = true;
 	double phaseAccumSamples = 0.0;
@@ -414,16 +420,30 @@ struct SpacesCommand : Module {
 		captureFocusedScene();
 
 		float morph = params[MORPH_PARAM].getValue();
-		float rest = crossfade(sceneA.rest, sceneB.rest, morph);
+		float restRaw = crossfade(sceneA.rest, sceneB.rest, morph);
 		float legato = crossfade(sceneA.legato, sceneB.legato, morph);
+		float rest = restRaw;
 		// Matches the original VST exactly: high legato suppresses rest
-		// probability, making playback flow more connected. Previously
-		// captured but never applied -- a dead knob.
+		// probability for DSP purposes only -- the REST knob's on-screen
+		// value still shows the raw blend, unaffected by this.
 		if (legato >= 0.8f) rest = rest * clamp((1.f - legato) / 0.2f, 0.f, 1.f);
 		float rate01 = crossfade(sceneA.rate, sceneB.rate, morph);
 		float entropy = crossfade(sceneA.entropy, sceneB.entropy, morph);
+		float harmonyF = crossfade(sceneA.harmony, sceneB.harmony, morph);
+		float chaosF = crossfade(sceneA.chaos, sceneB.chaos, morph);
 		float octavesF = crossfade(sceneA.octaves, sceneB.octaves, morph);
 		int octaveShift = (int)std::round(octavesF);
+
+		// Live-morph display values -- see displayFaderValue etc. declaration above.
+		for (int i = 0; i < 8; i++)
+			displayFaderValue[i] = crossfade(sceneA.faders[i], sceneB.faders[i], morph);
+		displayRest = restRaw;
+		displayLegato = legato;
+		displayRate = rate01;
+		displayEntropy = entropy;
+		displayHarmony = harmonyF;
+		displayChaos = chaosF;
+		displayOctaves = octavesF;
 
 		heldNotes.clear();
 		int channels = std::max(inputs[VOCT_INPUT].getChannels(), 1);
@@ -695,6 +715,78 @@ struct SmallKnob85 : RoundBlackKnob {
 
 // Voice ADSR/Timbre knobs need to be smaller than FEEL's -- an
 // additional 85% on top of SmallKnob85 (0.85*0.85 = ~72% of stock size).
+// Custom rotary knob for the 7 scene-scoped FEEL knobs (REST, LEGATO,
+// RATE, ENTROPY, HARMONY, CHAOS, OCTAVES). Same reasoning as
+// VFaderHandle: a stock knob has no hook for an externally-driven
+// display value without corrupting the true param, so this is fully
+// custom-drawn. displayValuePtr holds a RAW (engineering-unit) value;
+// normalized against this knob's own param range at draw time, since
+// FEEL knobs have varying ranges (0..1, -1..1, -3..3).
+struct MorphKnob : ParamWidget {
+	float* displayValuePtr = nullptr;
+	bool dragging = false;
+
+	MorphKnob() {
+		box.size = mm2px(Vec(7.3, 7.3));
+	}
+
+	void onButton(const ButtonEvent& e) override {
+		ParamWidget::onButton(e);
+		if (e.button == GLFW_MOUSE_BUTTON_LEFT && e.action == GLFW_PRESS) {
+			dragging = true;
+			e.consume(this);
+		}
+	}
+
+	void onDragEnd(const DragEndEvent& e) override {
+		ParamWidget::onDragEnd(e);
+		dragging = false;
+	}
+
+	void onDragMove(const DragMoveEvent& e) override {
+		ParamWidget::onDragMove(e);
+		ParamQuantity* pq = getParamQuantity();
+		if (!pq) return;
+		float zoom = getAbsoluteZoom();
+		float delta = -e.mouseDelta.y / zoom / 200.f;  // standard Rack knob feel
+		pq->setScaledValue(clamp((float)pq->getScaledValue() + delta, 0.f, 1.f));
+	}
+
+	void draw(const DrawArgs& args) override {
+		ParamQuantity* pq = getParamQuantity();
+		float v;
+		if (dragging || !displayValuePtr || !pq) {
+			v = pq ? (float)pq->getScaledValue() : 0.f;
+		} else {
+			// displayValuePtr is a raw blended value -- normalize against
+			// this knob's actual param range (varies per FEEL knob)
+			float range = pq->maxValue - pq->minValue;
+			v = (range > 0.0001f) ? clamp((*displayValuePtr - pq->minValue) / range, 0.f, 1.f) : 0.f;
+		}
+		float cx = box.size.x / 2.f, cy = box.size.y / 2.f;
+		float r = box.size.x / 2.f - 1.0f;
+		nvgBeginPath(args.vg);
+		nvgCircle(args.vg, cx, cy, r);
+		nvgFillColor(args.vg, nvgRGB(0x18, 0x18, 0x18));
+		nvgFill(args.vg);
+		nvgStrokeColor(args.vg, nvgRGB(0x40, 0x40, 0x40));
+		nvgStrokeWidth(args.vg, 1.0f);
+		nvgStroke(args.vg);
+		float minAngle = -0.75f * (float)M_PI;
+		float maxAngle = 0.75f * (float)M_PI;
+		float angle = minAngle + (maxAngle - minAngle) * v;
+		float ix = cx + std::sin(angle) * r * 0.75f;
+		float iy = cy - std::cos(angle) * r * 0.75f;
+		nvgBeginPath(args.vg);
+		nvgMoveTo(args.vg, cx, cy);
+		nvgLineTo(args.vg, ix, iy);
+		nvgStrokeColor(args.vg, nvgRGB(0xE8, 0xE8, 0xE8));
+		nvgStrokeWidth(args.vg, 1.4f);
+		nvgLineCap(args.vg, NVG_ROUND);
+		nvgStroke(args.vg);
+	}
+};
+
 struct SmallKnobVoice : RoundBlackKnob {
 	static constexpr float SCALE = 0.85f * 0.85f;
 	SmallKnobVoice() {
@@ -773,6 +865,7 @@ struct SquareButton : ParamWidget {
 struct VFaderHandle : ParamWidget {
 	float trackY0Px = 0.f, trackY1Px = 0.f;  // Y at value=1 (top), value=0 (bottom)
 	float centerX = 0.f;
+	float* displayValuePtr = nullptr;  // live Scene A/B blend, computed every frame by the module
 	bool dragging = false;  // whether THIS fader is currently being dragged
 
 	VFaderHandle() {
@@ -807,14 +900,19 @@ struct VFaderHandle : ParamWidget {
 
 	void step() override {
 		ParamWidget::step();
-		// Matches the original VST exactly: there is no live blend-preview
-		// while dragging the crossfader -- the panel always shows the
-		// focused scene's value directly, updating instantly on a scene
-		// switch (via loadSceneIntoParams). The param itself is kept in
-		// sync with the focused scene by captureFocusedScene()/
-		// loadSceneIntoParams(), so just reading it directly is correct.
-		ParamQuantity* pq = getParamQuantity();
-		float v = pq ? (float)pq->getScaledValue() : 0.f;
+		// Matches the original VST's timerCallback exactly: every fader not
+		// currently grabbed by the mouse continuously shows interpolate
+		// (sceneA, sceneB, morph) -- a live, constant sweep as the
+		// crossfader moves, not just an update on scene-focus-switch. The
+		// underlying param is untouched by this (stays the true edit
+		// target); only the on-screen position is display-only here.
+		float v;
+		if (dragging || !displayValuePtr) {
+			ParamQuantity* pq = getParamQuantity();
+			v = pq ? (float)pq->getScaledValue() : 0.f;
+		} else {
+			v = *displayValuePtr;
+		}
 		float centerYPx = trackY1Px + (trackY0Px - trackY1Px) * v;
 		box.pos.x = centerX - box.size.x / 2.f;
 		box.pos.y = centerYPx - box.size.y / 2.f;
@@ -854,14 +952,42 @@ struct SpacesCommandWidget : ModuleWidget {
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(227.27, 19.2)), module, SpacesCommand::MASTER_L_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(261.92, 19.2)), module, SpacesCommand::MASTER_R_OUTPUT));
 
-		// FEEL: macro knobs, 85%-scaled
-		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(21.0, 38.02)), module, SpacesCommand::REST_PARAM));
-		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(43.4, 38.02)), module, SpacesCommand::LEGATO_PARAM));
-		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(65.8, 38.02)), module, SpacesCommand::RATE_PARAM));
-		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(88.2, 38.02)), module, SpacesCommand::ENTROPY_PARAM));
-		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(110.59, 38.02)), module, SpacesCommand::HARMONY_PARAM));
-		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(132.99, 38.02)), module, SpacesCommand::CHAOS_PARAM));
-		addParam(createParamCentered<SmallKnob85>(mm2px(Vec(155.39, 38.02)), module, SpacesCommand::OCTAVES_PARAM));
+		// FEEL: macro knobs -- custom MorphKnob for live scene-blend display, matching original VST
+		{
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(21.0, 38.02)), module, SpacesCommand::REST_PARAM);
+			if (module) k->displayValuePtr = &module->displayRest;
+			addParam(k);
+		}
+		{
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(43.4, 38.02)), module, SpacesCommand::LEGATO_PARAM);
+			if (module) k->displayValuePtr = &module->displayLegato;
+			addParam(k);
+		}
+		{
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(65.8, 38.02)), module, SpacesCommand::RATE_PARAM);
+			if (module) k->displayValuePtr = &module->displayRate;
+			addParam(k);
+		}
+		{
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(88.2, 38.02)), module, SpacesCommand::ENTROPY_PARAM);
+			if (module) k->displayValuePtr = &module->displayEntropy;
+			addParam(k);
+		}
+		{
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(110.59, 38.02)), module, SpacesCommand::HARMONY_PARAM);
+			if (module) k->displayValuePtr = &module->displayHarmony;
+			addParam(k);
+		}
+		{
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(132.99, 38.02)), module, SpacesCommand::CHAOS_PARAM);
+			if (module) k->displayValuePtr = &module->displayChaos;
+			addParam(k);
+		}
+		{
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(155.39, 38.02)), module, SpacesCommand::OCTAVES_PARAM);
+			if (module) k->displayValuePtr = &module->displayOctaves;
+			addParam(k);
+		}
 
 		// CONTROLS: square toggle buttons, green when engaged (real toggle now, not momentary-read)
 		{
@@ -1008,6 +1134,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(23.0, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[0];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(44.46, 87.48)), module, SpacesCommand::STEP_LIGHTS + 1));
@@ -1016,6 +1143,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(44.46, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[1];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(65.92, 87.48)), module, SpacesCommand::STEP_LIGHTS + 2));
@@ -1024,6 +1152,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(65.92, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[2];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(87.38, 87.48)), module, SpacesCommand::STEP_LIGHTS + 3));
@@ -1032,6 +1161,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(87.38, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[3];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(108.84, 87.48)), module, SpacesCommand::STEP_LIGHTS + 4));
@@ -1040,6 +1170,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(108.84, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[4];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(130.3, 87.48)), module, SpacesCommand::STEP_LIGHTS + 5));
@@ -1048,6 +1179,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(130.3, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[5];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(151.75, 87.48)), module, SpacesCommand::STEP_LIGHTS + 6));
@@ -1056,6 +1188,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(151.75, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[6];
 			addParam(fader);
 		}
 		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(173.21, 87.48)), module, SpacesCommand::STEP_LIGHTS + 7));
@@ -1064,6 +1197,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			fader->trackY0Px = mm2px(Vec(0, 89.28)).y;
 			fader->trackY1Px = mm2px(Vec(0, 113.28)).y;
 			fader->centerX = mm2px(Vec(173.21, 0)).x;
+			if (module) fader->displayValuePtr = &module->displayFaderValue[7];
 			addParam(fader);
 		}
 		addParam(createParamCentered<SquareButton>(mm2px(Vec(202.27, 97.18)), module, SpacesCommand::MELO_PARAM));
