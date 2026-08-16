@@ -140,9 +140,9 @@ struct SpacesCommand : Module {
 		ENTROPY_PARAM, HARMONY_PARAM, CHAOS_PARAM, DICE_NAVY, NAVY_NUDGE_DOWN, NAVY_NUDGE_UP, OCTAVES_PARAM,
 		ROOT_KEY_PARAM, SCALE_TYPE_PARAM, DENSITY_PARAM, SWING_PARAM,
 		VOICE1_WAVE_AN, VOICE1_WAVE_FM, VOICE1_WAVE_SS, VOICE1_WAVE_PL,
-		VOICE1_ATTACK_PARAM, VOICE1_DECAY_PARAM, VOICE1_SUSTAIN_PARAM, VOICE1_RELEASE_PARAM, VOICE1_TIMBRE_PARAM,
+		VOICE1_ATTACK_PARAM, VOICE1_DECAY_PARAM, VOICE1_SUSTAIN_PARAM, VOICE1_RELEASE_PARAM, VOICE1_TIMBRE_PARAM, VOICE1_GATE_LEN_PARAM,
 		VOICE2_WAVE_AN, VOICE2_WAVE_FM, VOICE2_WAVE_SS, VOICE2_WAVE_PL,
-		VOICE2_ATTACK_PARAM, VOICE2_DECAY_PARAM, VOICE2_SUSTAIN_PARAM, VOICE2_RELEASE_PARAM, VOICE2_TIMBRE_PARAM,
+		VOICE2_ATTACK_PARAM, VOICE2_DECAY_PARAM, VOICE2_SUSTAIN_PARAM, VOICE2_RELEASE_PARAM, VOICE2_TIMBRE_PARAM, VOICE2_GATE_LEN_PARAM,
 		PARAMS_LEN
 	};
 	enum InputId { VOCT_INPUT, GATE_INPUT, VELOCITY_INPUT, CLOCK_INPUT, INPUTS_LEN };
@@ -168,6 +168,10 @@ struct SpacesCommand : Module {
 	int currentStep = 0;
 	bool goingForward = true;
 	double phaseAccumSamples = 0.0;
+	double samplesSinceLastStep = 0.0;
+	double lastStepIntervalSamples = 4410.0;  // ~100ms default until the first real interval is measured
+	int voice1ReleaseCountdown = -1;  // samples remaining until this voice's note-off fires; -1 = inactive
+	int voice2ReleaseCountdown = -1;
 
 	std::vector<int> heldNotes, latchedNotes;
 	SynthVoice voice1, voice2;
@@ -239,6 +243,7 @@ struct SpacesCommand : Module {
 		configParam(VOICE1_SUSTAIN_PARAM, 0.f, 1.f, 0.70f, "Voice 1 sustain", "%", 0, 100);
 		configParam(VOICE1_RELEASE_PARAM, 0.001f, 4.f, 0.25f, "Voice 1 release", " s");
 		configParam(VOICE1_TIMBRE_PARAM, 0.f, 1.f, 0.5f, "Voice 1 timbre");
+		configParam(VOICE1_GATE_LEN_PARAM, 0.05f, 1.f, 0.95f, "Voice 1 gate length", "%", 0, 100);
 
 		configButton(VOICE2_WAVE_AN, "Voice 2: Analog");
 		configButton(VOICE2_WAVE_FM, "Voice 2: FM");
@@ -249,6 +254,7 @@ struct SpacesCommand : Module {
 		configParam(VOICE2_SUSTAIN_PARAM, 0.f, 1.f, 0.70f, "Voice 2 sustain", "%", 0, 100);
 		configParam(VOICE2_RELEASE_PARAM, 0.001f, 4.f, 0.25f, "Voice 2 release", " s");
 		configParam(VOICE2_TIMBRE_PARAM, 0.f, 1.f, 0.5f, "Voice 2 timbre");
+		configParam(VOICE2_GATE_LEN_PARAM, 0.05f, 1.f, 0.5f, "Voice 2 gate length", "%", 0, 100);
 
 		configInput(VOCT_INPUT, "1V/oct pitch (poly, held notes)");
 		configInput(GATE_INPUT, "Gate (poly, held notes)");
@@ -476,6 +482,22 @@ struct SpacesCommand : Module {
 			}
 		}
 
+		// Track the real interval between steps (works for both free-run
+		// and external clock) so note-off timing can match the original's
+		// stepSamples*0.95 gate regardless of what's driving the clock.
+		samplesSinceLastStep += 1.0;
+		if (stepTriggered) {
+			if (samplesSinceLastStep > 1.0) lastStepIntervalSamples = samplesSinceLastStep;
+			samplesSinceLastStep = 0.0;
+		}
+
+		// Fire the scheduled release the moment its countdown reaches zero.
+		// Missing this entirely was the bug: triggerNote() was called but
+		// releaseNote() never was, so every note just sat at its sustain
+		// level forever once triggered -- a permanent drone.
+		if (voice1ReleaseCountdown > 0) { voice1ReleaseCountdown--; if (voice1ReleaseCountdown == 0) voice1.releaseNote(); }
+		if (voice2ReleaseCountdown > 0) { voice2ReleaseCountdown--; if (voice2ReleaseCountdown == 0) voice2.releaseNote(); }
+
 		if (stepTriggered) {
 			int playDirection = 0;
 			if (entropy >= -0.1f && entropy <= 0.1f) playDirection = 0;
@@ -539,17 +561,21 @@ struct SpacesCommand : Module {
 				voice2.release = params[VOICE2_RELEASE_PARAM].getValue();
 
 				bool split = routingOnState;
+				int gateCountdown1 = std::max(1, (int)std::round(lastStepIntervalSamples * params[VOICE1_GATE_LEN_PARAM].getValue()));
+				int gateCountdown2 = std::max(1, (int)std::round(lastStepIntervalSamples * params[VOICE2_GATE_LEN_PARAM].getValue()));
 				if (!split) {
 					// TOGETHER: both voices always fire on every note
 					voice1.triggerNote(pitchVolt);
 					voice2.triggerNote(pitchVolt);
+					voice1ReleaseCountdown = gateCountdown1;
+					voice2ReleaseCountdown = gateCountdown2;
 				} else {
 					// SPLIT A.B: Voice 1 plays Scene-A-weighted steps, Voice 2
 					// plays Scene-B-weighted steps, chosen by which scene the
 					// morph currently favors -- lets the two voices diverge
 					// into distinct instruments as you move the crossfader.
-					if (morph < 0.5f) voice1.triggerNote(pitchVolt);
-					else voice2.triggerNote(pitchVolt);
+					if (morph < 0.5f) { voice1.triggerNote(pitchVolt); voice1ReleaseCountdown = gateCountdown1; }
+					else { voice2.triggerNote(pitchVolt); voice2ReleaseCountdown = gateCountdown2; }
 				}
 			}
 			for (int i = 0; i < 8; i++)
@@ -943,10 +969,10 @@ struct SpacesCommandWidget : ModuleWidget {
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/SpacesCommand.svg")));
 
 // I/O
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.4, 19.2)), module, SpacesCommand::VOCT_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(54.05, 19.2)), module, SpacesCommand::GATE_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(88.69, 19.2)), module, SpacesCommand::VELOCITY_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(123.34, 19.2)), module, SpacesCommand::CLOCK_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.4, 19.2)), module, SpacesCommand::CLOCK_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(54.05, 19.2)), module, SpacesCommand::VOCT_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(88.69, 19.2)), module, SpacesCommand::GATE_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(123.34, 19.2)), module, SpacesCommand::VELOCITY_INPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(157.98, 19.2)), module, SpacesCommand::VOICE1_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(192.63, 19.2)), module, SpacesCommand::VOICE2_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(227.27, 19.2)), module, SpacesCommand::MASTER_L_OUTPUT));
@@ -1026,7 +1052,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(btn);
 		}
 
-		// VOICE1: square wave buttons, 4 distinct colors + 72%-scaled knobs
+		// VOICE1: square wave buttons, 4 distinct colors + 72%-scaled knobs (incl. gate length)
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(18.82, 56.76)), module, SpacesCommand::VOICE1_WAVE_AN);
 			btn->mod = module;
@@ -1035,33 +1061,34 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(32.73, 56.76)), module, SpacesCommand::VOICE1_WAVE_FM);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(31.18, 56.76)), module, SpacesCommand::VOICE1_WAVE_FM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::VOICE1_WAVE_AN_LIGHT + 1;
 			btn->litColor = nvgRGB(0xD8,0xC0,0x30);
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(46.64, 56.76)), module, SpacesCommand::VOICE1_WAVE_SS);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(43.55, 56.76)), module, SpacesCommand::VOICE1_WAVE_SS);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::VOICE1_WAVE_AN_LIGHT + 2;
 			btn->litColor = nvgRGB(0x50,0xC8,0x60);
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(60.55, 56.76)), module, SpacesCommand::VOICE1_WAVE_PL);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(55.91, 56.76)), module, SpacesCommand::VOICE1_WAVE_PL);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::VOICE1_WAVE_AN_LIGHT + 3;
 			btn->litColor = nvgRGB(0x40,0x90,0xE0);
 			addParam(btn);
 		}
-		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(74.45, 56.76)), module, SpacesCommand::VOICE1_ATTACK_PARAM));
-		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(88.36, 56.76)), module, SpacesCommand::VOICE1_DECAY_PARAM));
-		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(102.27, 56.76)), module, SpacesCommand::VOICE1_SUSTAIN_PARAM));
-		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(116.18, 56.76)), module, SpacesCommand::VOICE1_RELEASE_PARAM));
-		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(130.09, 56.76)), module, SpacesCommand::VOICE1_TIMBRE_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(68.27, 56.76)), module, SpacesCommand::VOICE1_ATTACK_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(80.64, 56.76)), module, SpacesCommand::VOICE1_DECAY_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(93.0, 56.76)), module, SpacesCommand::VOICE1_SUSTAIN_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(105.36, 56.76)), module, SpacesCommand::VOICE1_RELEASE_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(117.73, 56.76)), module, SpacesCommand::VOICE1_TIMBRE_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(130.09, 56.76)), module, SpacesCommand::VOICE1_GATE_LEN_PARAM));
 
-		// VOICE2: square wave buttons, 4 distinct colors + 72%-scaled knobs
+		// VOICE2: square wave buttons, 4 distinct colors + 72%-scaled knobs (incl. gate length)
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(151.23, 56.76)), module, SpacesCommand::VOICE2_WAVE_AN);
 			btn->mod = module;
@@ -1070,31 +1097,32 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(165.14, 56.76)), module, SpacesCommand::VOICE2_WAVE_FM);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(163.59, 56.76)), module, SpacesCommand::VOICE2_WAVE_FM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::VOICE2_WAVE_AN_LIGHT + 1;
 			btn->litColor = nvgRGB(0xD8,0xC0,0x30);
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(179.05, 56.76)), module, SpacesCommand::VOICE2_WAVE_SS);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(175.96, 56.76)), module, SpacesCommand::VOICE2_WAVE_SS);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::VOICE2_WAVE_AN_LIGHT + 2;
 			btn->litColor = nvgRGB(0x50,0xC8,0x60);
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(192.96, 56.76)), module, SpacesCommand::VOICE2_WAVE_PL);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(188.32, 56.76)), module, SpacesCommand::VOICE2_WAVE_PL);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::VOICE2_WAVE_AN_LIGHT + 3;
 			btn->litColor = nvgRGB(0x40,0x90,0xE0);
 			addParam(btn);
 		}
-		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(206.87, 56.76)), module, SpacesCommand::VOICE2_ATTACK_PARAM));
-		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(220.77, 56.76)), module, SpacesCommand::VOICE2_DECAY_PARAM));
-		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(234.68, 56.76)), module, SpacesCommand::VOICE2_SUSTAIN_PARAM));
-		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(248.59, 56.76)), module, SpacesCommand::VOICE2_RELEASE_PARAM));
-		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(262.5, 56.76)), module, SpacesCommand::VOICE2_TIMBRE_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(200.68, 56.76)), module, SpacesCommand::VOICE2_ATTACK_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(213.05, 56.76)), module, SpacesCommand::VOICE2_DECAY_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(225.41, 56.76)), module, SpacesCommand::VOICE2_SUSTAIN_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(237.77, 56.76)), module, SpacesCommand::VOICE2_RELEASE_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(250.14, 56.76)), module, SpacesCommand::VOICE2_TIMBRE_PARAM));
+		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(262.5, 56.76)), module, SpacesCommand::VOICE2_GATE_LEN_PARAM));
 
 		// SCENE: A/B focus (square, letter baked in, red glow when focused) + crossfader fader cap
 		{
