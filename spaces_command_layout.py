@@ -35,11 +35,11 @@ R = {
     "track_half": 1.05,     # another 30% thinner per explicit request (was 1.5)
 }
 
-BG, BG2 = "#F4F1EA", "#E9E4D8"
+BG, BG2 = "#F5F1E9", "#DDE1D7"
 BORDER = "#8A7F6A"
-TEXT_DIM = "#6B6255"
+TEXT_DIM = "#4A4438"
 TEXT_BRIGHT = "#2A2620"
-MICRO = "#5C5347"
+MICRO = "#2E281F"
 SLOT = "#DDD6C6"
 AMBER = "#B8720A"
 CYAN = "#0E7A8C"
@@ -109,7 +109,8 @@ def section(name, x, y, w, h, title, color=TEXT_DIM):
     _, measured_w = text_to_path(title, 0, 0, max_size, tracking=1.1, anchor="middle")
     size = max_size if measured_w <= available else max(1.5, max_size * available / measured_w)
     p, w = text_to_path(title, 0, 0, size, tracking=1.1, anchor="middle")
-    add(f'<g fill="{color}" transform="translate({cx},{cy}) rotate(-90)">{p}</g>')
+    p2, _ = text_to_path(title, 0.05, 0, size, tracking=1.1, anchor="middle")
+    add(f'<g fill="{color}" transform="translate({cx},{cy}) rotate(-90)">{p}{p2}</g>')
 
 y = TITLE_H
 
@@ -149,6 +150,8 @@ assert margin >= 3, f"OVERFLOW by {-margin:.1f}mm"
 def micro(text, x, y, color=MICRO, size=1.7):
     p, _ = txt(text, x, y, size, color, anchor="middle")
     add(p)
+    p2, _ = txt(text, x + 0.05, y, size, color, anchor="middle")
+    add(p2)
 
 layout = {"steps": [], "crossfader": {}, "controls": [], "key": [], "macro": [],
           "voice1": [], "voice2": [], "io": [], "randomize": []}
@@ -163,8 +166,8 @@ def grid_x(name, n, i, pad=6.0):
 iox, ioy, iow, ioh, _ = sections["io"]
 port_y = centered_y(ioy, ioh, R["port"])
 label_y_io = port_y + R["port"] + LABEL_GAP + LABEL_H
-io_names = ["V/OCT","GATE","VEL","CLOCK","VOICE 1","VOICE 2","MASTER L","MASTER R"]
-io_params = ["VOCT_INPUT","GATE_INPUT","VELOCITY_INPUT","CLOCK_INPUT",
+io_names = ["CLOCK","V/OCT","GATE","VEL","VOICE 1","VOICE 2","MASTER L","MASTER R"]
+io_params = ["CLOCK_INPUT","VOCT_INPUT","GATE_INPUT","VELOCITY_INPUT",
              "VOICE1_OUTPUT","VOICE2_OUTPUT","MASTER_L_OUTPUT","MASTER_R_OUTPUT"]
 io_dirs = ["in","in","in","in","out","out","out","out"]
 n_io = len(io_names)
@@ -214,14 +217,18 @@ def voice_layout(name, prefix, accent):
     label_y_v = knob_y_v + R["knob"] + LABEL_GAP + LABEL_H
     out = []
     items = [("AN","wave"), ("FM","wave"), ("SS","wave"), ("PL","wave"),
-             ("ATK","knob"), ("DEC","knob"), ("SUS","knob"), ("REL","knob"), ("TIMBRE","knob")]
+             ("ATK","knob"), ("DEC","knob"), ("SUS","knob"), ("REL","knob"), ("TIMBRE","knob"), ("GATE","knob")]
     n = len(items)
     pad = R["knob"] + 1.5
     usable = vw - 2*pad
     for i, (nm, kind) in enumerate(items):
         cx = vx + pad + (usable / (n-1)) * i
-        pnm = f"{prefix}_WAVE_{nm}" if kind == "wave" else \
-              f"{prefix}_{'ATTACK' if nm=='ATK' else 'DECAY' if nm=='DEC' else 'SUSTAIN' if nm=='SUS' else 'RELEASE' if nm=='REL' else 'TIMBRE'}_PARAM"
+        if kind == "wave":
+            pnm = f"{prefix}_WAVE_{nm}"
+        elif nm == "GATE":
+            pnm = f"{prefix}_GATE_LEN_PARAM"
+        else:
+            pnm = f"{prefix}_{'ATTACK' if nm=='ATK' else 'DECAY' if nm=='DEC' else 'SUSTAIN' if nm=='SUS' else 'RELEASE' if nm=='REL' else 'TIMBRE'}_PARAM"
         if kind == "knob":
             add(f'<circle cx="{cx}" cy="{knob_y_v}" r="{R["knob_voice"]+1.0}" fill="none" stroke="{BORDER}" stroke-width="0.3" opacity="0.35"/>')
         micro(nm, cx, label_y_v, size=1.4 if kind == "wave" else 1.7)
