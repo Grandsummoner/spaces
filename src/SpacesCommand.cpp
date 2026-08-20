@@ -170,6 +170,13 @@ struct SpacesCommand : Module {
 	double phaseAccumSamples = 0.0;
 	double samplesSinceLastStep = 0.0;
 	double lastStepIntervalSamples = 4410.0;  // ~100ms default until the first real interval is measured
+	// Clock-division tracking (matches the original VST's discrete 4-way
+	// rate selector -- 1/4, 1/8, 1/16, 1/32 -- but relative to our
+	// incoming CLOCK pulses since Rack has no host tempo to read).
+	double samplesSinceLastClockPulse = 0.0;
+	double lastClockPulseIntervalSamples = 0.0;
+	int clockPulseCounter = 0;
+	bool clockSubTriggered = false;
 	int voice1ReleaseCountdown = -1;  // samples remaining until this voice's note-off fires; -1 = inactive
 	int voice2ReleaseCountdown = -1;
 
@@ -216,7 +223,7 @@ struct SpacesCommand : Module {
 		configButton(ARTI_NUDGE_DOWN, "Nudge Rest+Legato down");
 		configButton(ARTI_NUDGE_UP, "Nudge Rest+Legato up");
 		configParam(LEGATO_PARAM, 0.f, 1.f, 0.5f, "Legato", "%", 0, 100);
-		configParam(RATE_PARAM, 0.f, 1.f, 0.5f, "Rate", " BPM", 0, 200, 40);
+		configParam(RATE_PARAM, 0.f, 1.f, 0.5f, "Rate (free-run BPM, or clock division 1/4-1/32 when CLOCK is patched)", " BPM", 0, 200, 40);
 		configButton(DICE_TIME, "Randomize Rate+Octaves (TIME)");
 		configButton(TIME_NUDGE_DOWN, "Nudge Rate+Octaves down");
 		configButton(TIME_NUDGE_UP, "Nudge Rate+Octaves up");
@@ -471,7 +478,42 @@ struct SpacesCommand : Module {
 		bool stepTriggered = false;
 
 		if (clockPatched) {
-			stepTriggered = clockTrig.process(inputs[CLOCK_INPUT].getVoltage());
+			bool rawClockEdge = clockTrig.process(inputs[CLOCK_INPUT].getVoltage());
+			samplesSinceLastClockPulse += 1.0;
+
+			// RATE selects a division relative to the incoming clock pulse,
+			// matching the original's discrete 4-way rate selector (1/4,
+			// 1/8, 1/16, 1/32) -- adapted to Rack's raw-pulse-clock model
+			// since there's no host tempo to read here. Index 2 (1/16) is
+			// the baseline: one step per incoming pulse, same as before
+			// this feature existed.
+			int rateIdx = clamp((int)std::round(rate01 * 3.f), 0, 3);
+
+			if (rateIdx <= 2) {
+				// 1/4, 1/8, 1/16: divide the incoming clock (fire every
+				// 4th / 2nd / every pulse)
+				int divideBy = (rateIdx == 0) ? 4 : (rateIdx == 1) ? 2 : 1;
+				if (rawClockEdge) {
+					clockPulseCounter++;
+					if (clockPulseCounter >= divideBy) { clockPulseCounter = 0; stepTriggered = true; }
+				}
+			} else {
+				// 1/32: twice as fast as the incoming pulse -- fire on the
+				// raw edge, and again at the measured half-period point
+				if (rawClockEdge) {
+					stepTriggered = true;
+					clockSubTriggered = false;
+				} else if (!clockSubTriggered && lastClockPulseIntervalSamples > 1.0 &&
+				           samplesSinceLastClockPulse >= lastClockPulseIntervalSamples * 0.5) {
+					stepTriggered = true;
+					clockSubTriggered = true;
+				}
+			}
+
+			if (rawClockEdge) {
+				if (samplesSinceLastClockPulse > 1.0) lastClockPulseIntervalSamples = samplesSinceLastClockPulse;
+				samplesSinceLastClockPulse = 0.0;
+			}
 		} else {
 			bool playing = !notesToPlay.empty() || freezeOn;
 			double bpm = 40.0 + rate01 * 200.0;
@@ -1071,7 +1113,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(43.55, 56.76)), module, SpacesCommand::VOICE1_WAVE_SS);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::VOICE1_WAVE_AN_LIGHT + 2;
-			btn->litColor = nvgRGB(0x50,0xC8,0x60);
+			btn->litColor = nvgRGB(0xA0,0x50,0xD0);
 			addParam(btn);
 		}
 		{
@@ -1107,7 +1149,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(175.96, 56.76)), module, SpacesCommand::VOICE2_WAVE_SS);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::VOICE2_WAVE_AN_LIGHT + 2;
-			btn->litColor = nvgRGB(0x50,0xC8,0x60);
+			btn->litColor = nvgRGB(0xA0,0x50,0xD0);
 			addParam(btn);
 		}
 		{
