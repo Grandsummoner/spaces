@@ -29,21 +29,31 @@ struct SynthVoice {
 	float envVal = 0.f;
 	float releaseLevel = 0.f;
 	double stateTime = 0.0;
-	int activeNoteCount = 0;
 
+	// This is a monophonic-per-voice step sequencer: every step is a NEW
+	// note that should supersede whatever's still sounding, not accumulate
+	// as a second concurrently-held note. A ref-counted activeNoteCount
+	// used to live here (incremented on trigger, decremented on release,
+	// only actually releasing at count==0) -- that was the real cause of
+	// the permanent-drone bug: if a new triggerNote() landed before the
+	// previous note's scheduled releaseNote() had fired, the count reached
+	// 2, and the next single releaseNote() call only brought it back to 1,
+	// so the envelope never saw Release and just sat at Sustain forever.
+	// The original VST doesn't ref-count either -- it tracks one "last
+	// note played" and force-releases it immediately before starting the
+	// next, so a new note always wins outright. triggerNote/releaseNote
+	// below do the same: always act immediately, no counting.
 	void triggerNote(float pitchVolt) {
 		float freq = dsp::FREQ_C4 * std::pow(2.f, pitchVolt);
 		phaseIncrement = freq / sampleRate;
 		float detunes[7] = { -0.06f, -0.04f, -0.015f, 0.f, 0.015f, 0.04f, 0.06f };
 		for (int i = 0; i < 7; i++)
 			sawPhaseIncrements[i] = freq * std::pow(2.f, detunes[i] / 12.f) / sampleRate;
-		if (activeNoteCount == 0) { envState = EnvState::Attack; stateTime = 0.0; envVal = 0.f; }
-		activeNoteCount++;
+		envState = EnvState::Attack; stateTime = 0.0; envVal = 0.f;
 	}
 
 	void releaseNote() {
-		if (activeNoteCount > 0) activeNoteCount--;
-		if (activeNoteCount == 0 && envState != EnvState::Idle) {
+		if (envState != EnvState::Idle) {
 			envState = EnvState::Release; releaseLevel = envVal; stateTime = 0.0;
 		}
 	}
@@ -223,7 +233,7 @@ struct SpacesCommand : Module {
 		configButton(ARTI_NUDGE_DOWN, "Nudge Rest+Legato down");
 		configButton(ARTI_NUDGE_UP, "Nudge Rest+Legato up");
 		configParam(LEGATO_PARAM, 0.f, 1.f, 0.5f, "Legato", "%", 0, 100);
-		configParam(RATE_PARAM, 0.f, 1.f, 0.5f, "Rate (free-run BPM, or clock division 1/4-1/32 when CLOCK is patched)", " BPM", 0, 200, 40);
+		configParam(RATE_PARAM, 0.f, 1.f, 0.5f, "Rate (free-run BPM, or clock division 1/4-1/32 when CLOCK is patched)", " BPM", 0, 360, 40);
 		configButton(DICE_TIME, "Randomize Rate+Octaves (TIME)");
 		configButton(TIME_NUDGE_DOWN, "Nudge Rate+Octaves down");
 		configButton(TIME_NUDGE_UP, "Nudge Rate+Octaves up");
@@ -233,7 +243,7 @@ struct SpacesCommand : Module {
 		configButton(DICE_NAVY, "Randomize Entropy+Harmony+Chaos (NAVY)");
 		configButton(NAVY_NUDGE_DOWN, "Nudge Entropy+Harmony+Chaos down");
 		configButton(NAVY_NUDGE_UP, "Nudge Entropy+Harmony+Chaos up");
-		configParam(OCTAVES_PARAM, -3.f, 3.f, 0.f, "Octave shift");
+		configParam(OCTAVES_PARAM, -3.f, 3.f, 0.f, "Octave shift")->snapEnabled = true;
 		configParam(ROOT_KEY_PARAM, 0.f, 11.f, 0.f, "Root key");
 		getParamQuantity(ROOT_KEY_PARAM)->snapEnabled = true;
 		configParam(SCALE_TYPE_PARAM, 0.f, 9.f, 0.f, "Scale");
@@ -405,7 +415,7 @@ struct SpacesCommand : Module {
 		lights[SCENE_A_LIGHT].setBrightness(!focusB);
 		lights[SCENE_B_LIGHT].setBrightness(focusB);
 
-		// Mode toggle LEDs: green when on, unlit when off
+		// Mode toggle LEDs: navy when on, unlit when off
 		if (latchTrig.process(params[LATCH_PARAM].getValue())) latchOnState = !latchOnState;
 		if (arpSeqTrig.process(params[ARPSEQ_PARAM].getValue())) arpSeqOnState = !arpSeqOnState;
 		if (polyTrig.process(params[POLY_PARAM].getValue())) polyOnState = !polyOnState;
@@ -516,7 +526,7 @@ struct SpacesCommand : Module {
 			}
 		} else {
 			bool playing = !notesToPlay.empty() || freezeOn;
-			double bpm = 40.0 + rate01 * 200.0;
+			double bpm = 40.0 + rate01 * 360.0;  // 40-400 BPM (was capped at 240)
 			double stepSamples = args.sampleRate * (60.0 / std::max(1.0, bpm)) * 0.25;
 			if (playing) {
 				phaseAccumSamples += 1.0;
@@ -662,8 +672,9 @@ struct SpacesCommand : Module {
 // Custom horizontal crossfader handle -- a real fader CAP that slides
 // along the SCENE track, per explicit request that it must not be a
 // knob. Drag horizontally; position maps directly to MORPH_PARAM.
-// Fill color itself blends amber(A)->cyan(B) with position, so the
-// handle visually shows how far toward each scene it's leaning.
+// Static maroon body with an amber stroke/LED -- a fixed cap color,
+// not a live per-position blend (position itself is shown by where it
+// sits on the track).
 // =====================================================================
 struct HCrossfaderHandle : ParamWidget {
 	float trackX0Px = 0.f, trackX1Px = 0.f;
@@ -704,8 +715,8 @@ struct HCrossfaderHandle : ParamWidget {
 	}
 
 	void draw(const DrawArgs& args) override {
-		// distinct purple/amber cap -- different from the faders' black/green
-		NVGcolor body = nvgRGB(0x2E, 0x1A, 0x30);
+		// distinct maroon/amber cap -- different from the faders' black/amber
+		NVGcolor body = nvgRGB(0x3A, 0x14, 0x14);
 		nvgBeginPath(args.vg);
 		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 2.f);
 		nvgFillColor(args.vg, body);
@@ -794,6 +805,22 @@ struct MorphKnob : ParamWidget {
 	float* displayValuePtr = nullptr;
 	bool dragging = false;
 
+	// quantizeSteps: functional -- when >0, the knob's SCALED value (0..1)
+	// is snapped to the nearest of N evenly-spaced positions as it's
+	// turned. Used instead of ParamQuantity::snapEnabled for RATE, whose
+	// raw 0..1 value is dual-purpose (BPM in free-run mode, but a 4-way
+	// clock-division selector when CLOCK is patched) -- engine-level
+	// snapping would round the raw value itself and break the division
+	// selector. Widget-level snapping in scaled-value space works for
+	// both uses at once. OCTAVES doesn't have this dual-purpose problem
+	// so it uses ParamQuantity::snapEnabled directly instead.
+	int quantizeSteps = 0;
+	// numTicks: cosmetic only -- small reference marks drawn around the
+	// rim, independent of quantizeSteps (RATE has 361 functional steps,
+	// far too many to draw individually, so it gets a smaller decorative
+	// set of reference ticks instead).
+	int numTicks = 0;
+
 	MorphKnob() {
 		box.size = mm2px(Vec(7.3, 7.3));
 	}
@@ -817,7 +844,9 @@ struct MorphKnob : ParamWidget {
 		if (!pq) return;
 		float zoom = getAbsoluteZoom();
 		float delta = -e.mouseDelta.y / zoom / 200.f;  // standard Rack knob feel
-		pq->setScaledValue(clamp((float)pq->getScaledValue() + delta, 0.f, 1.f));
+		float v = clamp((float)pq->getScaledValue() + delta, 0.f, 1.f);
+		if (quantizeSteps > 1) v = std::round(v * (quantizeSteps - 1)) / (quantizeSteps - 1);
+		pq->setScaledValue(v);
 	}
 
 	void draw(const DrawArgs& args) override {
@@ -833,6 +862,22 @@ struct MorphKnob : ParamWidget {
 		}
 		float cx = box.size.x / 2.f, cy = box.size.y / 2.f;
 		float r = box.size.x / 2.f - 1.0f;
+		float minAngle = -0.75f * (float)M_PI;
+		float maxAngle = 0.75f * (float)M_PI;
+		if (numTicks > 1) {
+			for (int i = 0; i < numTicks; i++) {
+				float ta = minAngle + (maxAngle - minAngle) * ((float)i / (float)(numTicks - 1));
+				float x0 = cx + std::sin(ta) * (r + 0.6f), y0 = cy - std::cos(ta) * (r + 0.6f);
+				float x1 = cx + std::sin(ta) * (r + 2.2f), y1 = cy - std::cos(ta) * (r + 2.2f);
+				nvgBeginPath(args.vg);
+				nvgMoveTo(args.vg, x0, y0);
+				nvgLineTo(args.vg, x1, y1);
+				nvgStrokeColor(args.vg, nvgRGB(0x8A, 0x7F, 0x6A));
+				nvgStrokeWidth(args.vg, 0.6f);
+				nvgLineCap(args.vg, NVG_ROUND);
+				nvgStroke(args.vg);
+			}
+		}
 		nvgBeginPath(args.vg);
 		nvgCircle(args.vg, cx, cy, r);
 		nvgFillColor(args.vg, nvgRGB(0x18, 0x18, 0x18));
@@ -840,8 +885,6 @@ struct MorphKnob : ParamWidget {
 		nvgStrokeColor(args.vg, nvgRGB(0x40, 0x40, 0x40));
 		nvgStrokeWidth(args.vg, 1.0f);
 		nvgStroke(args.vg);
-		float minAngle = -0.75f * (float)M_PI;
-		float maxAngle = 0.75f * (float)M_PI;
 		float angle = minAngle + (maxAngle - minAngle) * v;
 		float ix = cx + std::sin(angle) * r * 0.75f;
 		float iy = cy - std::cos(angle) * r * 0.75f;
@@ -997,7 +1040,7 @@ struct VFaderHandle : ParamWidget {
 		nvgStrokeWidth(args.vg, 0.9f);
 		nvgStroke(args.vg);
 		float cx = box.size.x/2, cy = box.size.y/2;
-		NVGpaint glow = nvgRadialGradient(args.vg, cx, cy, 0.3f, 3.0f, nvgRGBA(0x4A, 0xFF, 0x6A, 130), nvgRGBA(0x4A, 0xFF, 0x6A, 0));
+		NVGpaint glow = nvgRadialGradient(args.vg, cx, cy, 0.3f, 3.0f, nvgRGBA(0xFF, 0xB0, 0x4A, 130), nvgRGBA(0xFF, 0xB0, 0x4A, 0));
 		nvgBeginPath(args.vg);
 		nvgRect(args.vg, cx-4, cy-2.5f, 8, 5);
 		nvgFillPaint(args.vg, glow);
@@ -1034,6 +1077,8 @@ struct SpacesCommandWidget : ModuleWidget {
 		{
 			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(65.8, 38.02)), module, SpacesCommand::RATE_PARAM);
 			if (module) k->displayValuePtr = &module->displayRate;
+			k->quantizeSteps = 361;  // 1 BPM per detent across the 40-400 BPM range
+			k->numTicks = 9;  // decorative reference marks (too many BPM steps to tick individually)
 			addParam(k);
 		}
 		{
@@ -1054,43 +1099,44 @@ struct SpacesCommandWidget : ModuleWidget {
 		{
 			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(155.39, 38.02)), module, SpacesCommand::OCTAVES_PARAM);
 			if (module) k->displayValuePtr = &module->displayOctaves;
+			k->numTicks = 7;  // one tick per whole-octave position (-3..+3); snapping itself is engine-level (snapEnabled)
 			addParam(k);
 		}
 
-		// CONTROLS: square toggle buttons, green when engaged (real toggle now, not momentary-read)
+		// CONTROLS: square toggle buttons, navy when engaged (real toggle now, not momentary-read)
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(179.89, 38.02)), module, SpacesCommand::LATCH_PARAM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::LATCH_LIGHT;
-			btn->litColor = nvgRGB(0x4A, 0xC8, 0x5A);
+			btn->litColor = nvgRGB(0x2E, 0x4A, 0x6E);
 			addParam(btn);
 		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(200.25, 38.02)), module, SpacesCommand::ARPSEQ_PARAM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::ARPSEQ_LIGHT;
-			btn->litColor = nvgRGB(0x4A, 0xC8, 0x5A);
+			btn->litColor = nvgRGB(0x2E, 0x4A, 0x6E);
 			addParam(btn);
 		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(220.61, 38.02)), module, SpacesCommand::POLY_PARAM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::POLY_LIGHT;
-			btn->litColor = nvgRGB(0x4A, 0xC8, 0x5A);
+			btn->litColor = nvgRGB(0x2E, 0x4A, 0x6E);
 			addParam(btn);
 		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(240.96, 38.02)), module, SpacesCommand::FREEZE_PARAM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::FREEZE_LIGHT;
-			btn->litColor = nvgRGB(0x4A, 0xC8, 0x5A);
+			btn->litColor = nvgRGB(0x2E, 0x4A, 0x6E);
 			addParam(btn);
 		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(261.32, 38.02)), module, SpacesCommand::ROUTING_PARAM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::ROUTING_LIGHT;
-			btn->litColor = nvgRGB(0x4A, 0xC8, 0x5A);
+			btn->litColor = nvgRGB(0x2E, 0x4A, 0x6E);
 			addParam(btn);
 		}
 
@@ -1113,14 +1159,14 @@ struct SpacesCommandWidget : ModuleWidget {
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(43.55, 56.76)), module, SpacesCommand::VOICE1_WAVE_SS);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::VOICE1_WAVE_AN_LIGHT + 2;
-			btn->litColor = nvgRGB(0xA0,0x50,0xD0);
+			btn->litColor = nvgRGB(0x9A,0x30,0x28);
 			addParam(btn);
 		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(55.91, 56.76)), module, SpacesCommand::VOICE1_WAVE_PL);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::VOICE1_WAVE_AN_LIGHT + 3;
-			btn->litColor = nvgRGB(0x40,0x90,0xE0);
+			btn->litColor = nvgRGB(0x3A,0x58,0x80);
 			addParam(btn);
 		}
 		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(68.27, 56.76)), module, SpacesCommand::VOICE1_ATTACK_PARAM));
@@ -1149,14 +1195,14 @@ struct SpacesCommandWidget : ModuleWidget {
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(175.96, 56.76)), module, SpacesCommand::VOICE2_WAVE_SS);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::VOICE2_WAVE_AN_LIGHT + 2;
-			btn->litColor = nvgRGB(0xA0,0x50,0xD0);
+			btn->litColor = nvgRGB(0x9A,0x30,0x28);
 			addParam(btn);
 		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(188.32, 56.76)), module, SpacesCommand::VOICE2_WAVE_PL);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::VOICE2_WAVE_AN_LIGHT + 3;
-			btn->litColor = nvgRGB(0x40,0x90,0xE0);
+			btn->litColor = nvgRGB(0x3A,0x58,0x80);
 			addParam(btn);
 		}
 		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(200.68, 56.76)), module, SpacesCommand::VOICE2_ATTACK_PARAM));
@@ -1270,7 +1316,11 @@ struct SpacesCommandWidget : ModuleWidget {
 			if (module) fader->displayValuePtr = &module->displayFaderValue[7];
 			addParam(fader);
 		}
-		addParam(createParamCentered<SquareButton>(mm2px(Vec(202.27, 97.18)), module, SpacesCommand::MELO_PARAM));
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(202.27, 97.18)), module, SpacesCommand::MELO_PARAM);
+			btn->unlitColor = nvgRGB(0x6A, 0x42, 0x08);  // amber family -- matches the 8 pattern faders it randomizes
+			addParam(btn);
+		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(198.17, 106.28)), module, SpacesCommand::MELO_NUDGE_DOWN);
 			btn->box.size = mm2px(Vec(3.6, 3.6));
@@ -1285,7 +1335,11 @@ struct SpacesCommandWidget : ModuleWidget {
 			btn->letter = "+";
 			addParam(btn);
 		}
-		addParam(createParamCentered<SquareButton>(mm2px(Vec(219.27, 97.18)), module, SpacesCommand::DICE_ARTI));
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(219.27, 97.18)), module, SpacesCommand::DICE_ARTI);
+			btn->unlitColor = nvgRGB(0x5A, 0x1E, 0x1E);  // maroon family -- matches REST+LEGATO knob rings
+			addParam(btn);
+		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(215.17, 106.28)), module, SpacesCommand::ARTI_NUDGE_DOWN);
 			btn->box.size = mm2px(Vec(3.6, 3.6));
@@ -1300,7 +1354,11 @@ struct SpacesCommandWidget : ModuleWidget {
 			btn->letter = "+";
 			addParam(btn);
 		}
-		addParam(createParamCentered<SquareButton>(mm2px(Vec(236.27, 97.18)), module, SpacesCommand::DICE_TIME));
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(236.27, 97.18)), module, SpacesCommand::DICE_TIME);
+			btn->unlitColor = nvgRGB(0x5A, 0x40, 0x18);  // brass/ochre family -- matches RATE+OCTAVES knob rings
+			addParam(btn);
+		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(232.17, 106.28)), module, SpacesCommand::TIME_NUDGE_DOWN);
 			btn->box.size = mm2px(Vec(3.6, 3.6));
@@ -1315,7 +1373,11 @@ struct SpacesCommandWidget : ModuleWidget {
 			btn->letter = "+";
 			addParam(btn);
 		}
-		addParam(createParamCentered<SquareButton>(mm2px(Vec(253.27, 97.18)), module, SpacesCommand::DICE_NAVY));
+		{
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(253.27, 97.18)), module, SpacesCommand::DICE_NAVY);
+			btn->unlitColor = nvgRGB(0x1E, 0x30, 0x48);  // navy family -- matches ENTROPY+HARMONY+CHAOS knob rings
+			addParam(btn);
+		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(249.17, 106.28)), module, SpacesCommand::NAVY_NUDGE_DOWN);
 			btn->box.size = mm2px(Vec(3.6, 3.6));
