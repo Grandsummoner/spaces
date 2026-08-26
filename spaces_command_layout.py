@@ -11,8 +11,9 @@ written. Changes from v3 (per explicit feedback):
   - Crossfader track is 50% thinner.
   - Every row now guarantees a real minimum top/bottom margin (not just
     symmetric small padding) so nothing touches the box border.
-  - Voice wave buttons get 4 distinct colors (Red/Yellow/Green/Blue),
-    same 4 repeated for both voices.
+  - Voice wave buttons get 4 distinct colors (Red/Yellow/Maroon/Navy),
+    same 4 repeated for both voices. No purple or green anywhere in the
+    series' palette.
   - Scene A/B buttons get their letter rendered INSIDE the square via a
     custom NanoVG text overlay in the module C++ (panel SVG text can't
     render on top of a runtime component correctly, so this is done at
@@ -35,15 +36,20 @@ R = {
     "track_half": 1.05,     # another 30% thinner per explicit request (was 1.5)
 }
 
-BG, BG2 = "#F5F1E9", "#DDE1D7"
+BG, BG2 = "#F5F1E9", "#EDE7DC"  # BG2 (outline/background) now recedes into BG's own cream tone -- was pale green (#DDE1D7)
 BORDER = "#8A7F6A"
 TEXT_DIM = "#4A4438"
 TEXT_BRIGHT = "#2A2620"
 MICRO = "#2E281F"
 SLOT = "#DDD6C6"
 AMBER = "#B8720A"
-CYAN = "#0E7A8C"
-ACCENT_RING_COLORS = [AMBER, CYAN, "#6B7A3A", None, None, "#8A5A9A", None]
+MAROON = "#8A2A2A"   # Voice 2 + ARTI (REST/LEGATO) -- replaces CYAN and the old purple CHAOS ring
+BRASS = "#8A6423"    # TIME (RATE/OCTAVES)
+NAVY = "#2E4A6E"     # NAVY dice (ENTROPY/HARMONY/CHAOS) -- also the mode-toggle accent
+# REST, LEGATO, RATE, ENTROPY, HARMONY, CHAOS, OCTAVES -- grouped by which
+# DICE button (ARTI/TIME/NAVY) randomizes each, so ring color visually
+# matches its dice button. No purple, no green, no cyan anywhere.
+ACCENT_RING_COLORS = [MAROON, MAROON, BRASS, NAVY, NAVY, NAVY, BRASS]
 
 LABEL_GAP = 1.2
 LABEL_H = 1.8
@@ -129,7 +135,7 @@ y += row_fc_h + GAP
 row_v_h = row_height(R["knob"])
 voice_w = (full_w - GAP) / 2
 section("voice1", x0, y, voice_w, row_v_h, "VOICE 1", color=AMBER)
-section("voice2", x0 + voice_w + GAP, y, voice_w, row_v_h, "VOICE 2", color=CYAN)
+section("voice2", x0 + voice_w + GAP, y, voice_w, row_v_h, "VOICE 2", color=MAROON)
 y += row_v_h + GAP
 
 row_sk_h = row_height(R["bezel"])
@@ -236,7 +242,7 @@ def voice_layout(name, prefix, accent):
     return out
 
 layout["voice1"] = voice_layout("voice1", "VOICE1", AMBER)
-layout["voice2"] = voice_layout("voice2", "VOICE2", CYAN)
+layout["voice2"] = voice_layout("voice2", "VOICE2", MAROON)
 
 # ---- SCENE: A/B focus + crossfader only (mode toggles moved to CONTROLS) ----
 cx0, cy0, cw0, ch0, _ = sections["crossfader"]
@@ -249,7 +255,7 @@ visual_gap = 3.0        # explicit breathing room requested
 track_x0 = a_x + button_half_w + handle_half_w + visual_gap
 track_x1 = b_x - button_half_w - handle_half_w - visual_gap
 grad_id = "xfgrad"
-svg.insert(3, f'<linearGradient id="{grad_id}" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="{AMBER}" stop-opacity="0.30"/><stop offset="100%" stop-color="{CYAN}" stop-opacity="0.30"/></linearGradient>')
+svg.insert(3, f'<linearGradient id="{grad_id}" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="{AMBER}" stop-opacity="0.30"/><stop offset="100%" stop-color="{MAROON}" stop-opacity="0.30"/></linearGradient>')
 add(f'<rect x="{track_x0}" y="{ctrl_y2-R["track_half"]}" width="{track_x1-track_x0}" height="{R["track_half"]*2}" rx="{R["track_half"]}" fill="url(#{grad_id})"/>')
 add(f'<rect x="{track_x0}" y="{ctrl_y2-R["track_half"]}" width="{track_x1-track_x0}" height="{R["track_half"]*2}" rx="{R["track_half"]}" fill="none" stroke="{TEXT_DIM}" stroke-width="0.3"/>')
 layout["crossfader"] = {"a_x": round(a_x,2), "b_x": round(b_x,2), "track_x0": round(track_x0,2),
