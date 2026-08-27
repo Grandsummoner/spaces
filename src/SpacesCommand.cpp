@@ -4,12 +4,22 @@
 #include <algorithm>
 
 // =====================================================================
-// SYNTH VOICE — ported from the original Navy Arp 2 (JUCE) SynthVoice.
-// Waveform layers (Analog/FM/Supersaw/Pulse) are non-exclusive: any
-// combination can be active at once. Per explicit decision, active
-// layers are PLAIN-AVERAGED (sum / count), not loudness-compensated
-// (sum / sqrt(count)) -- stacking layers keeps total loudness roughly
-// constant rather than getting louder as more are added.
+// SYNTH VOICE -- ported bit-for-bit from the real original Navy Arp 2
+// (JUCE) SynthVoice struct in PluginProcessor.h. An earlier pass here
+// mistakenly concluded no original engine existed (only processBlock's
+// MIDI-only surface had been checked) and "improved" this with PolyBLEP
+// anti-aliasing, a 2-pole filter, wider supersaw detune, and exponential
+// envelope curves, plus non-ref-counted trigger/release. All of that has
+// been reverted per explicit instruction: this is meant to sound like
+// the actual original, not generically-better DSP -- naive waveforms,
+// single one-pole filter (AN/FM/PL sharing one state variable, matching
+// the original exactly), tight detune, linear envelope, and ref-counted
+// trigger/release all restored as-is. Waveform layers (Analog/FM/
+// Supersaw/Pulse) are non-exclusive: any combination can be active at
+// once. Per earlier explicit decision (separate from this revert),
+// active layers stay PLAIN-AVERAGED (sum / count) here, not the
+// original's loudness-compensated (sum / sqrt(count)) -- that
+// deviation was intentional and predates this session, so it stays.
 // =====================================================================
 struct SynthVoice {
 	float sampleRate = 44100.f;
@@ -29,31 +39,21 @@ struct SynthVoice {
 	float envVal = 0.f;
 	float releaseLevel = 0.f;
 	double stateTime = 0.0;
+	int activeNoteCount = 0;  // ref counter for concurrent/layered ADSR notes, matches original exactly
 
-	// This is a monophonic-per-voice step sequencer: every step is a NEW
-	// note that should supersede whatever's still sounding, not accumulate
-	// as a second concurrently-held note. A ref-counted activeNoteCount
-	// used to live here (incremented on trigger, decremented on release,
-	// only actually releasing at count==0) -- that was the real cause of
-	// the permanent-drone bug: if a new triggerNote() landed before the
-	// previous note's scheduled releaseNote() had fired, the count reached
-	// 2, and the next single releaseNote() call only brought it back to 1,
-	// so the envelope never saw Release and just sat at Sustain forever.
-	// The original VST doesn't ref-count either -- it tracks one "last
-	// note played" and force-releases it immediately before starting the
-	// next, so a new note always wins outright. triggerNote/releaseNote
-	// below do the same: always act immediately, no counting.
 	void triggerNote(float pitchVolt) {
 		float freq = dsp::FREQ_C4 * std::pow(2.f, pitchVolt);
 		phaseIncrement = freq / sampleRate;
 		float detunes[7] = { -0.06f, -0.04f, -0.015f, 0.f, 0.015f, 0.04f, 0.06f };
 		for (int i = 0; i < 7; i++)
 			sawPhaseIncrements[i] = freq * std::pow(2.f, detunes[i] / 12.f) / sampleRate;
-		envState = EnvState::Attack; stateTime = 0.0; envVal = 0.f;
+		if (activeNoteCount == 0) { envState = EnvState::Attack; stateTime = 0.0; envVal = 0.f; }
+		activeNoteCount++;
 	}
 
 	void releaseNote() {
-		if (envState != EnvState::Idle) {
+		if (activeNoteCount > 0) activeNoteCount--;
+		if (activeNoteCount == 0 && envState != EnvState::Idle) {
 			envState = EnvState::Release; releaseLevel = envVal; stateTime = 0.0;
 		}
 	}
