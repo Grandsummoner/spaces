@@ -172,10 +172,11 @@ def grid_x(name, n, i, pad=6.0):
 iox, ioy, iow, ioh, _ = sections["io"]
 port_y = centered_y(ioy, ioh, R["port"])
 label_y_io = port_y + R["port"] + LABEL_GAP + LABEL_H
-io_names = ["CLOCK","V/OCT","GATE","VEL","VOICE 1","VOICE 2","MASTER L","MASTER R"]
+io_names = ["CLOCK","V/OCT","GATE","VEL","VOICE 1","VOICE 2","MASTER L","MASTER R","PITCH","GATE OUT"]
 io_params = ["CLOCK_INPUT","VOCT_INPUT","GATE_INPUT","VELOCITY_INPUT",
-             "VOICE1_OUTPUT","VOICE2_OUTPUT","MASTER_L_OUTPUT","MASTER_R_OUTPUT"]
-io_dirs = ["in","in","in","in","out","out","out","out"]
+             "VOICE1_OUTPUT","VOICE2_OUTPUT","MASTER_L_OUTPUT","MASTER_R_OUTPUT",
+             "PITCH_OUTPUT","GATE_OUTPUT"]
+io_dirs = ["in","in","in","in","out","out","out","out","out","out"]
 n_io = len(io_names)
 pad_io = R["port"] + 2.0
 usable_io = iow - 2*pad_io
@@ -223,7 +224,7 @@ def voice_layout(name, prefix, accent):
     label_y_v = knob_y_v + R["knob"] + LABEL_GAP + LABEL_H
     out = []
     items = [("AN","wave"), ("FM","wave"), ("SS","wave"), ("PL","wave"),
-             ("ATK","knob"), ("DEC","knob"), ("SUS","knob"), ("REL","knob"), ("TIMBRE","knob"), ("GATE","knob"), ("GAIN","knob")]
+             ("ATK","knob"), ("DEC","knob"), ("SUS","knob"), ("REL","knob"), ("TIMBRE","knob"), ("GATE","knob")]
     n = len(items)
     pad = R["knob"] + 1.5
     usable = vw - 2*pad
@@ -233,8 +234,6 @@ def voice_layout(name, prefix, accent):
             pnm = f"{prefix}_WAVE_{nm}"
         elif nm == "GATE":
             pnm = f"{prefix}_GATE_LEN_PARAM"
-        elif nm == "GAIN":
-            pnm = f"{prefix}_GAIN_PARAM"
         else:
             pnm = f"{prefix}_{'ATTACK' if nm=='ATK' else 'DECAY' if nm=='DEC' else 'SUSTAIN' if nm=='SUS' else 'RELEASE' if nm=='REL' else 'TIMBRE'}_PARAM"
         if kind == "knob":
