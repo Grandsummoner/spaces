@@ -172,57 +172,63 @@
       "kind": "wave"
     },
     {
-      "x": 31.18,
+      "x": 29.95,
       "y": 56.76,
       "param": "VOICE1_WAVE_FM",
       "kind": "wave"
     },
     {
-      "x": 43.55,
+      "x": 41.07,
       "y": 56.76,
       "param": "VOICE1_WAVE_SS",
       "kind": "wave"
     },
     {
-      "x": 55.91,
+      "x": 52.2,
       "y": 56.76,
       "param": "VOICE1_WAVE_PL",
       "kind": "wave"
     },
     {
-      "x": 68.27,
+      "x": 63.33,
       "y": 56.76,
       "param": "VOICE1_ATTACK_PARAM",
       "kind": "knob"
     },
     {
-      "x": 80.64,
+      "x": 74.45,
       "y": 56.76,
       "param": "VOICE1_DECAY_PARAM",
       "kind": "knob"
     },
     {
-      "x": 93.0,
+      "x": 85.58,
       "y": 56.76,
       "param": "VOICE1_SUSTAIN_PARAM",
       "kind": "knob"
     },
     {
-      "x": 105.36,
+      "x": 96.71,
       "y": 56.76,
       "param": "VOICE1_RELEASE_PARAM",
       "kind": "knob"
     },
     {
-      "x": 117.73,
+      "x": 107.84,
       "y": 56.76,
       "param": "VOICE1_TIMBRE_PARAM",
       "kind": "knob"
     },
     {
-      "x": 130.09,
+      "x": 118.96,
       "y": 56.76,
       "param": "VOICE1_GATE_LEN_PARAM",
+      "kind": "knob"
+    },
+    {
+      "x": 130.09,
+      "y": 56.76,
+      "param": "VOICE1_GAIN_PARAM",
       "kind": "knob"
     }
   ],
@@ -234,57 +240,63 @@
       "kind": "wave"
     },
     {
-      "x": 163.59,
+      "x": 162.36,
       "y": 56.76,
       "param": "VOICE2_WAVE_FM",
       "kind": "wave"
     },
     {
-      "x": 175.96,
+      "x": 173.48,
       "y": 56.76,
       "param": "VOICE2_WAVE_SS",
       "kind": "wave"
     },
     {
-      "x": 188.32,
+      "x": 184.61,
       "y": 56.76,
       "param": "VOICE2_WAVE_PL",
       "kind": "wave"
     },
     {
-      "x": 200.68,
+      "x": 195.74,
       "y": 56.76,
       "param": "VOICE2_ATTACK_PARAM",
       "kind": "knob"
     },
     {
-      "x": 213.05,
+      "x": 206.87,
       "y": 56.76,
       "param": "VOICE2_DECAY_PARAM",
       "kind": "knob"
     },
     {
-      "x": 225.41,
+      "x": 217.99,
       "y": 56.76,
       "param": "VOICE2_SUSTAIN_PARAM",
       "kind": "knob"
     },
     {
-      "x": 237.77,
+      "x": 229.12,
       "y": 56.76,
       "param": "VOICE2_RELEASE_PARAM",
       "kind": "knob"
     },
     {
-      "x": 250.14,
+      "x": 240.25,
       "y": 56.76,
       "param": "VOICE2_TIMBRE_PARAM",
       "kind": "knob"
     },
     {
-      "x": 262.5,
+      "x": 251.37,
       "y": 56.76,
       "param": "VOICE2_GATE_LEN_PARAM",
+      "kind": "knob"
+    },
+    {
+      "x": 262.5,
+      "y": 56.76,
+      "param": "VOICE2_GAIN_PARAM",
       "kind": "knob"
     }
   ],

@@ -223,7 +223,7 @@ def voice_layout(name, prefix, accent):
     label_y_v = knob_y_v + R["knob"] + LABEL_GAP + LABEL_H
     out = []
     items = [("AN","wave"), ("FM","wave"), ("SS","wave"), ("PL","wave"),
-             ("ATK","knob"), ("DEC","knob"), ("SUS","knob"), ("REL","knob"), ("TIMBRE","knob"), ("GATE","knob")]
+             ("ATK","knob"), ("DEC","knob"), ("SUS","knob"), ("REL","knob"), ("TIMBRE","knob"), ("GATE","knob"), ("GAIN","knob")]
     n = len(items)
     pad = R["knob"] + 1.5
     usable = vw - 2*pad
@@ -233,6 +233,8 @@ def voice_layout(name, prefix, accent):
             pnm = f"{prefix}_WAVE_{nm}"
         elif nm == "GATE":
             pnm = f"{prefix}_GATE_LEN_PARAM"
+        elif nm == "GAIN":
+            pnm = f"{prefix}_GAIN_PARAM"
         else:
             pnm = f"{prefix}_{'ATTACK' if nm=='ATK' else 'DECAY' if nm=='DEC' else 'SUSTAIN' if nm=='SUS' else 'RELEASE' if nm=='REL' else 'TIMBRE'}_PARAM"
         if kind == "knob":
