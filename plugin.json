@@ -11,8 +11,8 @@
     {
       "slug": "SpacesCommand",
       "name": "Spaces Command",
-      "description": "Dual-scene probabilistic arpeggiator/sequencer with built-in dual synth voices. Core self-sufficient instrument in the Spaces family.",
-      "tags": ["Sequencer", "Oscillator", "Polyphonic", "Random"]
+      "description": "Dual-scene probabilistic CV/gate arpeggiator/sequencer with two independent Pitch+Gate voice outputs. Pure sequencing -- no built-in audio engine.",
+      "tags": ["Sequencer", "Random"]
     }
   ]
 }

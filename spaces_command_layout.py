@@ -1,9 +1,23 @@
 """
-Spaces Command panel layout v4. Computed from real component sizes,
+Spaces Command panel layout v5. Computed from real component sizes,
 asserted to fit the fixed 128.5mm Rack panel height before anything is
-written. Changes from v3 (per explicit feedback):
-  - Row order (top to bottom): I/O, FEEL+CONTROLS, VOICE1+VOICE2,
-    SCENE+KEY, PATTERN -- inverted from v3's PATTERN-first order.
+written. Changes from v4 (per explicit feedback):
+  - Instruments/voices removed entirely -- Command is now a pure
+    eurorack sequencer (no synth engine, no audio). VOICE 1 / VOICE 2
+    knob rows are gone; that was the widest row in v4 (258mm) and drove
+    the whole panel width, so removing it substantially narrows the
+    module (v4 was ~54HP; v5 is driven by the FEEL+CONTROLS row instead).
+  - Audio outputs (Voice1, Voice2, Master L/R) removed from I/O. In
+    their place: two full Pitch/Gate CV pairs (Voice1, Voice2) -- kept
+    as two pairs rather than collapsed to one, for future-proofing, even
+    though both voices currently share the same note. Each voice's GATE
+    output gets its own small GATE LEN knob directly above its jack
+    (5-100% of step interval) -- this used to shape a synth envelope's
+    release; now it directly shapes the CV gate pulse width.
+  - ROUTING toggle in CONTROLS stays as-is: a stub with no effect on
+    Command's own output, reserved for a future connector/voice module
+    to read.
+  - Row order (top to bottom): I/O, FEEL+CONTROLS, SCENE+KEY, PATTERN.
   - LATCH/ARP-SEQ/POLY/FREEZE/ROUTING split out of SCENE into their own
     "CONTROLS" group, paired alongside FEEL.
   - SCENE now holds only A/B focus + crossfader (mode toggles moved out),
@@ -11,9 +25,6 @@ written. Changes from v3 (per explicit feedback):
   - Crossfader track is 50% thinner.
   - Every row now guarantees a real minimum top/bottom margin (not just
     symmetric small padding) so nothing touches the box border.
-  - Voice wave buttons get 4 distinct colors (Red/Yellow/Maroon/Navy),
-    same 4 repeated for both voices. No purple or green anywhere in the
-    series' palette.
   - Scene A/B buttons get their letter rendered INSIDE the square via a
     custom NanoVG text overlay in the module C++ (panel SVG text can't
     render on top of a runtime component correctly, so this is done at
@@ -53,7 +64,8 @@ ACCENT_RING_COLORS = [MAROON, MAROON, BRASS, NAVY, NAVY, NAVY, BRASS]
 
 LABEL_GAP = 1.2
 LABEL_H = 1.8
-GAP = 2.5
+GAP = 7.5  # widened from 2.5 -- removing the VOICE row freed ~20mm of vertical
+           # space that would otherwise sit as dead margin at the panel bottom
 SIDE_TITLE_W = 7.0
 MIN_MARGIN = 2.3   # guaranteed clearance above/below content in every box
 
@@ -71,12 +83,9 @@ def centered_y(box_y, box_h, r, extra=0.0):
 
 STEP_PITCH = 13.5
 steps_w_needed = STEP_PITCH * 8 + 30
-VOICE_PITCH = 13.0
-voice_w_needed = VOICE_PITCH * 9 + 10
-two_voice_w = voice_w_needed * 2 + 4
 feelctrl_w_needed = 15.0 * 12  # 7 feel knobs + 5 controls buttons, generous
 
-content_w_needed = max(steps_w_needed, two_voice_w, feelctrl_w_needed)
+content_w_needed = max(steps_w_needed, feelctrl_w_needed)
 x0 = 6.0
 PANEL_W = content_w_needed + 2*x0
 WIDTH_HP = int(-(-PANEL_W // HP))
@@ -96,7 +105,7 @@ def add(s): svg.append(s)
 
 p, _ = txt("SPACES COMMAND", 8, 7.2, 4.4, TEXT_BRIGHT)
 add(p)
-p, _ = txt("arpeggiator + dual voice", 8, 10.4, 1.9, TEXT_DIM)
+p, _ = txt("dual-scene cv/gate sequencer", 8, 10.4, 1.9, TEXT_DIM)
 add(p)
 TITLE_H = 12.5
 
@@ -120,8 +129,12 @@ def section(name, x, y, w, h, title, color=TEXT_DIM):
 
 y = TITLE_H
 
-# ---- Row order: I/O, FEEL+CONTROLS, VOICE1+VOICE2, SCENE+KEY, PATTERN ----
-io_h = row_height(R["port"])
+# ---- Row order: I/O, FEEL+CONTROLS, SCENE+KEY, PATTERN ----
+# I/O reserves extra headroom for the two GATE LEN knobs that sit above
+# the V1 GATE / V2 GATE output jacks (the other 6 jacks leave that space
+# blank, same pattern as PATTERN's light-above-fader treatment below).
+io_knob_extra = R["knob_voice"]*2 + 1.0
+io_h = row_height(R["port"], extra=io_knob_extra)
 section("io", x0, y, full_w, io_h, "I/O")
 y += io_h + GAP
 
@@ -131,12 +144,6 @@ ctrl_w = full_w - feel_w - GAP
 section("macro", x0, y, feel_w, row_fc_h, "FEEL")
 section("controls", x0 + feel_w + GAP, y, ctrl_w, row_fc_h, "CONTROLS")
 y += row_fc_h + GAP
-
-row_v_h = row_height(R["knob"])
-voice_w = (full_w - GAP) / 2
-section("voice1", x0, y, voice_w, row_v_h, "VOICE 1", color=AMBER)
-section("voice2", x0 + voice_w + GAP, y, voice_w, row_v_h, "VOICE 2", color=MAROON)
-y += row_v_h + GAP
 
 row_sk_h = row_height(R["bezel"])
 scene_w = full_w * 0.62
@@ -160,7 +167,7 @@ def micro(text, x, y, color=MICRO, size=1.7):
     add(p2)
 
 layout = {"steps": [], "crossfader": {}, "controls": [], "key": [], "macro": [],
-          "voice1": [], "voice2": [], "io": [], "randomize": []}
+          "io": [], "gatelen": [], "randomize": []}
 
 def grid_x(name, n, i, pad=6.0):
     x, sy, w, h, _ = sections[name]
@@ -170,13 +177,14 @@ def grid_x(name, n, i, pad=6.0):
 
 # ---- I/O ----
 iox, ioy, iow, ioh, _ = sections["io"]
-port_y = centered_y(ioy, ioh, R["port"])
+port_y = centered_y(ioy, ioh, R["port"], extra=io_knob_extra)
+gatelen_knob_y = port_y - R["port"] - 0.8 - R["knob_voice"]
 label_y_io = port_y + R["port"] + LABEL_GAP + LABEL_H
-io_names = ["CLOCK","V/OCT","GATE","VEL","VOICE 1","VOICE 2","MASTER L","MASTER R","PITCH","GATE OUT"]
+io_names = ["CLOCK","V/OCT","GATE","VEL","V1 PITCH","V1 GATE","V2 PITCH","V2 GATE"]
 io_params = ["CLOCK_INPUT","VOCT_INPUT","GATE_INPUT","VELOCITY_INPUT",
-             "VOICE1_OUTPUT","VOICE2_OUTPUT","MASTER_L_OUTPUT","MASTER_R_OUTPUT",
-             "PITCH_OUTPUT","GATE_OUTPUT"]
-io_dirs = ["in","in","in","in","out","out","out","out","out","out"]
+             "VOICE1_PITCH_OUTPUT","VOICE1_GATE_OUTPUT","VOICE2_PITCH_OUTPUT","VOICE2_GATE_OUTPUT"]
+io_dirs = ["in","in","in","in","out","out","out","out"]
+io_gatelen_param = {"V1 GATE": "VOICE1_GATE_LEN_PARAM", "V2 GATE": "VOICE2_GATE_LEN_PARAM"}
 n_io = len(io_names)
 pad_io = R["port"] + 2.0
 usable_io = iow - 2*pad_io
@@ -184,6 +192,9 @@ for i, (nm, pnm, dr) in enumerate(zip(io_names, io_params, io_dirs)):
     cx = iox + pad_io + (usable_io / (n_io-1)) * i
     micro(nm, cx, label_y_io, size=1.5)
     layout["io"].append({"x": round(cx,2), "y": round(port_y,2), "param": pnm, "dir": dr})
+    if nm in io_gatelen_param:
+        add(f'<circle cx="{cx}" cy="{gatelen_knob_y}" r="{R["knob_voice"]+1.0}" fill="none" stroke="{BORDER}" stroke-width="0.3" opacity="0.35"/>')
+        layout["gatelen"].append({"x": round(cx,2), "y": round(gatelen_knob_y,2), "param": io_gatelen_param[nm], "name": nm})
 
 # ---- FEEL ----
 mx0, my0, mw0, mh0, _ = sections["macro"]
@@ -216,34 +227,6 @@ for i, nm in enumerate(mode_names):
     cx = grid_x("controls", 5, i, pad=7.0)
     micro(nm, cx, label_y_ctrl, size=1.4)
     layout["controls"].append({"x": round(cx,2), "y": round(ctrl_y,2), "param": mode_param_map[nm], "light": mode_light_map[nm], "name": nm})
-
-# ---- VOICE 1 / VOICE 2 ----
-def voice_layout(name, prefix, accent):
-    vx, vy, vw, vh, _ = sections[name]
-    knob_y_v = centered_y(vy, vh, R["knob"])
-    label_y_v = knob_y_v + R["knob"] + LABEL_GAP + LABEL_H
-    out = []
-    items = [("AN","wave"), ("FM","wave"), ("SS","wave"), ("PL","wave"),
-             ("ATK","knob"), ("DEC","knob"), ("SUS","knob"), ("REL","knob"), ("TIMBRE","knob"), ("GATE","knob")]
-    n = len(items)
-    pad = R["knob"] + 1.5
-    usable = vw - 2*pad
-    for i, (nm, kind) in enumerate(items):
-        cx = vx + pad + (usable / (n-1)) * i
-        if kind == "wave":
-            pnm = f"{prefix}_WAVE_{nm}"
-        elif nm == "GATE":
-            pnm = f"{prefix}_GATE_LEN_PARAM"
-        else:
-            pnm = f"{prefix}_{'ATTACK' if nm=='ATK' else 'DECAY' if nm=='DEC' else 'SUSTAIN' if nm=='SUS' else 'RELEASE' if nm=='REL' else 'TIMBRE'}_PARAM"
-        if kind == "knob":
-            add(f'<circle cx="{cx}" cy="{knob_y_v}" r="{R["knob_voice"]+1.0}" fill="none" stroke="{BORDER}" stroke-width="0.3" opacity="0.35"/>')
-        micro(nm, cx, label_y_v, size=1.4 if kind == "wave" else 1.7)
-        out.append({"x": round(cx,2), "y": round(knob_y_v,2), "param": pnm, "kind": kind})
-    return out
-
-layout["voice1"] = voice_layout("voice1", "VOICE1", AMBER)
-layout["voice2"] = voice_layout("voice2", "VOICE2", MAROON)
 
 # ---- SCENE: A/B focus + crossfader only (mode toggles moved to CONTROLS) ----
 cx0, cy0, cw0, ch0, _ = sections["crossfader"]
@@ -305,7 +288,7 @@ nudge_params = [("MELO_NUDGE_DOWN","MELO_NUDGE_UP"), ("ARTI_NUDGE_DOWN","ARTI_NU
                  ("TIME_NUDGE_DOWN","TIME_NUDGE_UP"), ("NAVY_NUDGE_DOWN","NAVY_NUDGE_UP")]
 
 # ---- vertical stack, computed top-down, asserted to fit within sh ----
-box_pad = 3.0
+box_pad = 1.0
 title_h = 4.5
 gap1 = 1.5   # title -> dice button
 gap2 = 1.8   # dice button -> nudge row
@@ -320,8 +303,8 @@ assert box_h <= sh, f"DICE box overflows PATTERN row: needs {box_h:.1f}mm, row h
 
 # ---- horizontal: 4 equal columns, computed to fit within cluster_w ----
 nudge_pair_w = R["nudge"]*4 + 1.0   # two nudge buttons + gap between them
-col_w = max(dice_d, nudge_pair_w) + 3.0
-col_gap = 3.0
+col_w = max(dice_d, nudge_pair_w) + 1.0
+col_gap = 1.0
 row_w = col_w*4 + col_gap*3
 box_w = row_w + 2*box_pad
 assert box_w <= cluster_w, f"DICE box overflows horizontally: needs {box_w:.1f}mm, zone has {cluster_w:.1f}mm"

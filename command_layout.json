@@ -2,100 +2,100 @@
   "steps": [
     {
       "x": 23.0,
-      "light_y": 87.48,
-      "fader_y": 101.28,
-      "track_y0": 89.28,
-      "track_y1": 113.28
+      "light_y": 92.08,
+      "fader_y": 105.88,
+      "track_y0": 93.88,
+      "track_y1": 117.88
     },
     {
-      "x": 44.46,
-      "light_y": 87.48,
-      "fader_y": 101.28,
-      "track_y0": 89.28,
-      "track_y1": 113.28
+      "x": 36.72,
+      "light_y": 92.08,
+      "fader_y": 105.88,
+      "track_y0": 93.88,
+      "track_y1": 117.88
     },
     {
-      "x": 65.92,
-      "light_y": 87.48,
-      "fader_y": 101.28,
-      "track_y0": 89.28,
-      "track_y1": 113.28
+      "x": 50.44,
+      "light_y": 92.08,
+      "fader_y": 105.88,
+      "track_y0": 93.88,
+      "track_y1": 117.88
     },
     {
-      "x": 87.38,
-      "light_y": 87.48,
-      "fader_y": 101.28,
-      "track_y0": 89.28,
-      "track_y1": 113.28
+      "x": 64.15,
+      "light_y": 92.08,
+      "fader_y": 105.88,
+      "track_y0": 93.88,
+      "track_y1": 117.88
     },
     {
-      "x": 108.84,
-      "light_y": 87.48,
-      "fader_y": 101.28,
-      "track_y0": 89.28,
-      "track_y1": 113.28
+      "x": 77.87,
+      "light_y": 92.08,
+      "fader_y": 105.88,
+      "track_y0": 93.88,
+      "track_y1": 117.88
     },
     {
-      "x": 130.3,
-      "light_y": 87.48,
-      "fader_y": 101.28,
-      "track_y0": 89.28,
-      "track_y1": 113.28
+      "x": 91.59,
+      "light_y": 92.08,
+      "fader_y": 105.88,
+      "track_y0": 93.88,
+      "track_y1": 117.88
     },
     {
-      "x": 151.75,
-      "light_y": 87.48,
-      "fader_y": 101.28,
-      "track_y0": 89.28,
-      "track_y1": 113.28
+      "x": 105.31,
+      "light_y": 92.08,
+      "fader_y": 105.88,
+      "track_y0": 93.88,
+      "track_y1": 117.88
     },
     {
-      "x": 173.21,
-      "light_y": 87.48,
-      "fader_y": 101.28,
-      "track_y0": 89.28,
-      "track_y1": 113.28
+      "x": 119.03,
+      "light_y": 92.08,
+      "fader_y": 105.88,
+      "track_y0": 93.88,
+      "track_y1": 117.88
     }
   ],
   "crossfader": {
     "a_x": 20.0,
-    "b_x": 161.64,
+    "b_x": 111.24,
     "track_x0": 30.75,
-    "track_x1": 150.89,
-    "y": 75.28
+    "track_x1": 100.49,
+    "y": 74.88
   },
   "controls": [
     {
-      "x": 179.89,
-      "y": 38.02,
+      "x": 136.12,
+      "y": 51.36,
       "param": "LATCH_PARAM",
       "light": "LATCH_LIGHT",
       "name": "LATCH"
     },
     {
-      "x": 200.25,
-      "y": 38.02,
+      "x": 147.1,
+      "y": 51.36,
       "param": "ARPSEQ_PARAM",
       "light": "ARPSEQ_LIGHT",
       "name": "ARP-SEQ"
     },
     {
-      "x": 220.61,
-      "y": 38.02,
+      "x": 158.08,
+      "y": 51.36,
       "param": "POLY_PARAM",
       "light": "POLY_LIGHT",
       "name": "POLY"
     },
     {
-      "x": 240.96,
-      "y": 38.02,
+      "x": 169.06,
+      "y": 51.36,
       "param": "FREEZE_PARAM",
       "light": "FREEZE_LIGHT",
       "name": "FREEZE"
     },
     {
-      "x": 261.32,
-      "y": 38.02,
+      "x": 180.04,
+      "y": 51.36,
       "param": "ROUTING_PARAM",
       "light": "ROUTING_LIGHT",
       "name": "ROUTING"
@@ -103,26 +103,26 @@
   ],
   "key": [
     {
-      "x": 184.14,
-      "y": 73.78,
+      "x": 138.74,
+      "y": 73.38,
       "param": "ROOT_KEY_PARAM",
       "size": "small"
     },
     {
-      "x": 210.2,
-      "y": 73.78,
+      "x": 152.84,
+      "y": 73.38,
       "param": "SCALE_TYPE_PARAM",
       "size": "small"
     },
     {
-      "x": 236.26,
-      "y": 73.78,
+      "x": 166.94,
+      "y": 73.38,
       "param": "DENSITY_PARAM",
       "size": "small"
     },
     {
-      "x": 262.32,
-      "y": 73.78,
+      "x": 181.04,
+      "y": 73.38,
       "param": "SWING_PARAM",
       "size": "small"
     }
@@ -130,288 +130,166 @@
   "macro": [
     {
       "x": 21.0,
-      "y": 38.02,
+      "y": 51.36,
       "param": "REST_PARAM"
     },
     {
-      "x": 43.4,
-      "y": 38.02,
+      "x": 35.27,
+      "y": 51.36,
       "param": "LEGATO_PARAM"
     },
     {
-      "x": 65.8,
-      "y": 38.02,
+      "x": 49.54,
+      "y": 51.36,
       "param": "RATE_PARAM"
     },
     {
-      "x": 88.2,
-      "y": 38.02,
+      "x": 63.81,
+      "y": 51.36,
       "param": "ENTROPY_PARAM"
     },
     {
-      "x": 110.59,
-      "y": 38.02,
+      "x": 78.08,
+      "y": 51.36,
       "param": "HARMONY_PARAM"
     },
     {
-      "x": 132.99,
-      "y": 38.02,
+      "x": 92.35,
+      "y": 51.36,
       "param": "CHAOS_PARAM"
     },
     {
-      "x": 155.39,
-      "y": 38.02,
+      "x": 106.62,
+      "y": 51.36,
       "param": "OCTAVES_PARAM"
-    }
-  ],
-  "voice1": [
-    {
-      "x": 18.82,
-      "y": 56.76,
-      "param": "VOICE1_WAVE_AN",
-      "kind": "wave"
-    },
-    {
-      "x": 31.18,
-      "y": 56.76,
-      "param": "VOICE1_WAVE_FM",
-      "kind": "wave"
-    },
-    {
-      "x": 43.55,
-      "y": 56.76,
-      "param": "VOICE1_WAVE_SS",
-      "kind": "wave"
-    },
-    {
-      "x": 55.91,
-      "y": 56.76,
-      "param": "VOICE1_WAVE_PL",
-      "kind": "wave"
-    },
-    {
-      "x": 68.27,
-      "y": 56.76,
-      "param": "VOICE1_ATTACK_PARAM",
-      "kind": "knob"
-    },
-    {
-      "x": 80.64,
-      "y": 56.76,
-      "param": "VOICE1_DECAY_PARAM",
-      "kind": "knob"
-    },
-    {
-      "x": 93.0,
-      "y": 56.76,
-      "param": "VOICE1_SUSTAIN_PARAM",
-      "kind": "knob"
-    },
-    {
-      "x": 105.36,
-      "y": 56.76,
-      "param": "VOICE1_RELEASE_PARAM",
-      "kind": "knob"
-    },
-    {
-      "x": 117.73,
-      "y": 56.76,
-      "param": "VOICE1_TIMBRE_PARAM",
-      "kind": "knob"
-    },
-    {
-      "x": 130.09,
-      "y": 56.76,
-      "param": "VOICE1_GATE_LEN_PARAM",
-      "kind": "knob"
-    }
-  ],
-  "voice2": [
-    {
-      "x": 151.23,
-      "y": 56.76,
-      "param": "VOICE2_WAVE_AN",
-      "kind": "wave"
-    },
-    {
-      "x": 163.59,
-      "y": 56.76,
-      "param": "VOICE2_WAVE_FM",
-      "kind": "wave"
-    },
-    {
-      "x": 175.96,
-      "y": 56.76,
-      "param": "VOICE2_WAVE_SS",
-      "kind": "wave"
-    },
-    {
-      "x": 188.32,
-      "y": 56.76,
-      "param": "VOICE2_WAVE_PL",
-      "kind": "wave"
-    },
-    {
-      "x": 200.68,
-      "y": 56.76,
-      "param": "VOICE2_ATTACK_PARAM",
-      "kind": "knob"
-    },
-    {
-      "x": 213.05,
-      "y": 56.76,
-      "param": "VOICE2_DECAY_PARAM",
-      "kind": "knob"
-    },
-    {
-      "x": 225.41,
-      "y": 56.76,
-      "param": "VOICE2_SUSTAIN_PARAM",
-      "kind": "knob"
-    },
-    {
-      "x": 237.77,
-      "y": 56.76,
-      "param": "VOICE2_RELEASE_PARAM",
-      "kind": "knob"
-    },
-    {
-      "x": 250.14,
-      "y": 56.76,
-      "param": "VOICE2_TIMBRE_PARAM",
-      "kind": "knob"
-    },
-    {
-      "x": 262.5,
-      "y": 56.76,
-      "param": "VOICE2_GATE_LEN_PARAM",
-      "kind": "knob"
     }
   ],
   "io": [
     {
       "x": 19.4,
-      "y": 19.2,
+      "y": 27.54,
       "param": "CLOCK_INPUT",
       "dir": "in"
     },
     {
-      "x": 46.35,
-      "y": 19.2,
+      "x": 42.44,
+      "y": 27.54,
       "param": "VOCT_INPUT",
       "dir": "in"
     },
     {
-      "x": 73.29,
-      "y": 19.2,
+      "x": 65.47,
+      "y": 27.54,
       "param": "GATE_INPUT",
       "dir": "in"
     },
     {
-      "x": 100.24,
-      "y": 19.2,
+      "x": 88.5,
+      "y": 27.54,
       "param": "VELOCITY_INPUT",
       "dir": "in"
     },
     {
-      "x": 127.19,
-      "y": 19.2,
-      "param": "VOICE1_OUTPUT",
+      "x": 111.54,
+      "y": 27.54,
+      "param": "VOICE1_PITCH_OUTPUT",
       "dir": "out"
     },
     {
-      "x": 154.13,
-      "y": 19.2,
-      "param": "VOICE2_OUTPUT",
+      "x": 134.57,
+      "y": 27.54,
+      "param": "VOICE1_GATE_OUTPUT",
       "dir": "out"
     },
     {
-      "x": 181.08,
-      "y": 19.2,
-      "param": "MASTER_L_OUTPUT",
+      "x": 157.6,
+      "y": 27.54,
+      "param": "VOICE2_PITCH_OUTPUT",
       "dir": "out"
     },
     {
-      "x": 208.03,
-      "y": 19.2,
-      "param": "MASTER_R_OUTPUT",
+      "x": 180.64,
+      "y": 27.54,
+      "param": "VOICE2_GATE_OUTPUT",
       "dir": "out"
+    }
+  ],
+  "gatelen": [
+    {
+      "x": 134.57,
+      "y": 18.67,
+      "param": "VOICE1_GATE_LEN_PARAM",
+      "name": "V1 GATE"
     },
     {
-      "x": 234.97,
-      "y": 19.2,
-      "param": "PITCH_OUTPUT",
-      "dir": "out"
-    },
-    {
-      "x": 261.92,
-      "y": 19.2,
-      "param": "GATE_OUTPUT",
-      "dir": "out"
+      "x": 180.64,
+      "y": 18.67,
+      "param": "VOICE2_GATE_LEN_PARAM",
+      "name": "V2 GATE"
     }
   ],
   "randomize": [
     {
-      "x": 202.27,
-      "y": 97.18,
+      "x": 140.53,
+      "y": 103.78,
       "param": "MELO_PARAM",
       "name": "MELO",
       "nudge_down": {
-        "x": 198.17,
-        "y": 106.28,
+        "x": 136.43,
+        "y": 112.88,
         "param": "MELO_NUDGE_DOWN"
       },
       "nudge_up": {
-        "x": 206.37,
-        "y": 106.28,
+        "x": 144.63,
+        "y": 112.88,
         "param": "MELO_NUDGE_UP"
       }
     },
     {
-      "x": 219.27,
-      "y": 97.18,
+      "x": 153.53,
+      "y": 103.78,
       "param": "DICE_ARTI",
       "name": "ARTI",
       "nudge_down": {
-        "x": 215.17,
-        "y": 106.28,
+        "x": 149.43,
+        "y": 112.88,
         "param": "ARTI_NUDGE_DOWN"
       },
       "nudge_up": {
-        "x": 223.37,
-        "y": 106.28,
+        "x": 157.63,
+        "y": 112.88,
         "param": "ARTI_NUDGE_UP"
       }
     },
     {
-      "x": 236.27,
-      "y": 97.18,
+      "x": 166.53,
+      "y": 103.78,
       "param": "DICE_TIME",
       "name": "TIME",
       "nudge_down": {
-        "x": 232.17,
-        "y": 106.28,
+        "x": 162.43,
+        "y": 112.88,
         "param": "TIME_NUDGE_DOWN"
       },
       "nudge_up": {
-        "x": 240.37,
-        "y": 106.28,
+        "x": 170.63,
+        "y": 112.88,
         "param": "TIME_NUDGE_UP"
       }
     },
     {
-      "x": 253.27,
-      "y": 97.18,
+      "x": 179.53,
+      "y": 103.78,
       "param": "DICE_NAVY",
       "name": "NAVY",
       "nudge_down": {
-        "x": 249.17,
-        "y": 106.28,
+        "x": 175.43,
+        "y": 112.88,
         "param": "NAVY_NUDGE_DOWN"
       },
       "nudge_up": {
-        "x": 257.37,
-        "y": 106.28,
+        "x": 183.63,
+        "y": 112.88,
         "param": "NAVY_NUDGE_UP"
       }
     }
