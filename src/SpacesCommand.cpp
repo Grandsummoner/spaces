@@ -62,13 +62,17 @@ struct SpacesCommand : Module {
 	double phaseAccumSamples = 0.0;
 	double samplesSinceLastStep = 0.0;
 	double lastStepIntervalSamples = 4410.0;  // ~100ms default until the first real interval is measured
-	// Clock-division tracking (matches the original VST's discrete 4-way
-	// rate selector -- 1/4, 1/8, 1/16, 1/32 -- but relative to our
-	// incoming CLOCK pulses since Rack has no host tempo to read).
+	// Clock-subdivision tracking: matches the original's stepLengthPPQ model
+	// (1/4, 1/8, 1/16, 1/32 note lengths, derived from a quarter-note BEAT
+	// duration) rather than dividing incoming pulses. An incoming CLOCK
+	// pulse is treated as one quarter-note beat (the standard VCV clock
+	// convention) -- RATE then selects how many steps subdivide that beat
+	// (1/2/4/8 for 1/4-1/8-1/16-1/32), generated from the measured
+	// pulse-to-pulse interval rather than from host PPQ, which Rack has
+	// no equivalent of.
 	double samplesSinceLastClockPulse = 0.0;
 	double lastClockPulseIntervalSamples = 0.0;
-	int clockPulseCounter = 0;
-	bool clockSubTriggered = false;
+	int clockSubStepIndex = 0;
 	// Per-voice gate-output countdown: samples remaining with the gate
 	// held high, counted down from VOICE1/2_GATE_LEN_PARAM * the last
 	// measured step interval. Was previously used to schedule a SynthVoice
@@ -119,7 +123,7 @@ struct SpacesCommand : Module {
 		configButton(ARTI_NUDGE_DOWN, "Nudge Rest+Legato down");
 		configButton(ARTI_NUDGE_UP, "Nudge Rest+Legato up");
 		configParam(LEGATO_PARAM, 0.f, 1.f, 0.5f, "Legato", "%", 0, 100);
-		configParam(RATE_PARAM, 0.f, 1.f, 0.5f, "Rate (free-run BPM, or clock division 1/4-1/32 when CLOCK is patched)", " BPM", 0, 200, 40);
+		configParam(RATE_PARAM, 0.f, 1.f, 0.5f, "Rate (free-run BPM, or 1/4-1/32 note subdivision of the incoming CLOCK's beat)", " BPM", 0, 200, 40);
 		configButton(DICE_TIME, "Randomize Rate+Octaves (TIME)");
 		configButton(TIME_NUDGE_DOWN, "Nudge Rate+Octaves down");
 		configButton(TIME_NUDGE_UP, "Nudge Rate+Octaves up");
@@ -331,56 +335,58 @@ struct SpacesCommand : Module {
 		if (!heldNotes.empty() && latchOn) latchedNotes = heldNotes;
 		std::vector<int>& notesToPlay = latchOn ? latchedNotes : heldNotes;
 
-		// Clock-presence run logic: patched CLOCK drives steps on its rising
-		// edges (patching/unpatching IS start/stop); unpatched free-runs off
-		// RATE, gated by held notes / FREEZE, same as before.
+		// Clock-presence run logic: patched CLOCK drives steps (patching/
+		// unpatching IS start/stop); unpatched free-runs off RATE, gated
+		// by held notes / FREEZE, same as before.
 		bool clockPatched = inputs[CLOCK_INPUT].isConnected();
 		bool stepTriggered = false;
+		float swingParam = params[SWING_PARAM].getValue();
 
 		if (clockPatched) {
 			bool rawClockEdge = clockTrig.process(inputs[CLOCK_INPUT].getVoltage());
 			samplesSinceLastClockPulse += 1.0;
 
-			// RATE selects a division relative to the incoming clock pulse,
-			// matching the original's discrete 4-way rate selector (1/4,
-			// 1/8, 1/16, 1/32) -- adapted to Rack's raw-pulse-clock model
-			// since there's no host tempo to read here. Index 2 (1/16) is
-			// the baseline: one step per incoming pulse, same as before
-			// this feature existed.
+			// RATE selects how many steps subdivide each incoming beat,
+			// matching the original's stepLengthPPQ ratio (1.0/0.5/0.25/
+			// 0.125 for 1/4, 1/8, 1/16, 1/32) -- a FINER subdivision means
+			// MORE steps per incoming pulse, not fewer. Index 2 (1/16) is
+			// the baseline, needing 4 steps per quarter-note pulse.
 			int rateIdx = clamp((int)std::round(rate01 * 3.f), 0, 3);
-
-			if (rateIdx <= 2) {
-				// 1/4, 1/8, 1/16: divide the incoming clock (fire every
-				// 4th / 2nd / every pulse)
-				int divideBy = (rateIdx == 0) ? 4 : (rateIdx == 1) ? 2 : 1;
-				if (rawClockEdge) {
-					clockPulseCounter++;
-					if (clockPulseCounter >= divideBy) { clockPulseCounter = 0; stepTriggered = true; }
-				}
-			} else {
-				// 1/32: twice as fast as the incoming pulse -- fire on the
-				// raw edge, and again at the measured half-period point
-				if (rawClockEdge) {
-					stepTriggered = true;
-					clockSubTriggered = false;
-				} else if (!clockSubTriggered && lastClockPulseIntervalSamples > 1.0 &&
-				           samplesSinceLastClockPulse >= lastClockPulseIntervalSamples * 0.5) {
-					stepTriggered = true;
-					clockSubTriggered = true;
-				}
-			}
+			int subdivisionCount = (rateIdx == 0) ? 1 : (rateIdx == 1) ? 2 : (rateIdx == 2) ? 4 : 8;
 
 			if (rawClockEdge) {
 				if (samplesSinceLastClockPulse > 1.0) lastClockPulseIntervalSamples = samplesSinceLastClockPulse;
 				samplesSinceLastClockPulse = 0.0;
+				clockSubStepIndex = 0;
+				stepTriggered = true;  // the incoming edge itself is always a step boundary
+			} else if (lastClockPulseIntervalSamples > 1.0 && clockSubStepIndex + 1 < subdivisionCount) {
+				// Generate the remaining subdivisions within the measured
+				// beat period. Swing (same +-45%-of-interval alternation as
+				// free-run, below) staggers alternating sub-steps -- there's
+				// no host PPQ here to run the original's absolute-position
+				// swing formula against, so this is the closest faithful
+				// adaptation to a raw pulse-derived beat.
+				double subStepInterval = lastClockPulseIntervalSamples / subdivisionCount;
+				double swingOffset = 0.45 * swingParam * subStepInterval;
+				double target = subStepInterval * (clockSubStepIndex + 1);
+				target += (clockSubStepIndex % 2 == 0) ? swingOffset : -swingOffset;
+				if (samplesSinceLastClockPulse >= target) {
+					clockSubStepIndex++;
+					stepTriggered = true;
+				}
 			}
 		} else {
 			bool playing = !notesToPlay.empty() || freezeOn;
 			double bpm = 40.0 + rate01 * 200.0;  // matches original: 40-240 BPM free-run
 			double stepSamples = args.sampleRate * (60.0 / std::max(1.0, bpm)) * 0.25;
+			// Swing: matches original exactly -- even-indexed steps get
+			// lengthened, odd-indexed steps get shortened, up to 45% of
+			// the step interval.
+			double swingAmtSamples = 0.45 * swingParam * stepSamples;
+			double activeStepSamples = (currentStep % 2 == 0) ? stepSamples + swingAmtSamples : stepSamples - swingAmtSamples;
 			if (playing) {
 				phaseAccumSamples += 1.0;
-				if (phaseAccumSamples >= stepSamples) { phaseAccumSamples = 0.0; stepTriggered = true; }
+				if (phaseAccumSamples >= activeStepSamples) { phaseAccumSamples = 0.0; stepTriggered = true; }
 			}
 		}
 
