@@ -82,7 +82,20 @@ struct SpacesCommand : Module {
 	int voice2GateCountdown = -1;
 
 	std::vector<int> heldNotes, latchedNotes;
-	float lastPitchVolt = 0.f;
+	float lastVoice1PitchVolt = 0.f, lastVoice2PitchVolt = 0.f;
+	// FREEZE snapshot state: captured once on FREEZE's rising edge,
+	// matching the original exactly -- while engaged, the engine reads
+	// these frozen values instead of live knobs/held notes, so playback
+	// continues exactly as it was the instant FREEZE was engaged, even if
+	// knobs keep moving or notes get released/changed. The panel's live
+	// display values (displayRest etc.) are unaffected either way, same
+	// as the original's UI.
+	bool freezeWasOn = false;
+	float frozenRest = 0.f, frozenHarmony = 0.f, frozenChaos = 0.f, frozenEntropy = 0.f;
+	float frozenRate01 = 0.5f;
+	int frozenOctaveShift = 0;
+	float frozenFaders[8] = {};
+	std::vector<int> frozenHeldNotes, frozenLatchedNotes;
 	dsp::SchmittTrigger sceneATrig, sceneBTrig, clockTrig;
 	dsp::SchmittTrigger diceArtiTrig, diceTimeTrig, diceNavyTrig, meloTrig;
 	dsp::SchmittTrigger meloNudgeDownTrig, meloNudgeUpTrig, artiNudgeDownTrig, artiNudgeUpTrig;
@@ -113,10 +126,10 @@ struct SpacesCommand : Module {
 		configButton(SCENE_A_PARAM, "Focus Scene A");
 		configButton(SCENE_B_PARAM, "Focus Scene B");
 		configParam(MORPH_PARAM, 0.f, 1.f, 0.f, "Scene morph", "%", 0, 100);
-		configSwitch(LATCH_PARAM, 0.f, 1.f, 0.f, "Latch", {"Off", "On"});
-		configSwitch(ARPSEQ_PARAM, 0.f, 1.f, 0.f, "Arp / Seq mode", {"Arp", "Seq"});
-		configSwitch(POLY_PARAM, 0.f, 1.f, 0.f, "Poly", {"Off", "On"});
-		configSwitch(FREEZE_PARAM, 0.f, 1.f, 0.f, "Freeze", {"Off", "On"});
+		configSwitch(LATCH_PARAM, 0.f, 1.f, 0.f, "Latch (holds the last note fed into V/OCT+GATE after release)", {"Off", "On"});
+		configSwitch(ARPSEQ_PARAM, 0.f, 1.f, 0.f, "Arp (cycles held/latched notes) / Seq (fixed root+scale pattern, runs on its own)", {"Arp", "Seq"});
+		configSwitch(POLY_PARAM, 0.f, 1.f, 0.f, "Poly (splits a HARMONY chord tone onto Voice 2)", {"Off", "On"});
+		configSwitch(FREEZE_PARAM, 0.f, 1.f, 0.f, "Freeze (snapshots the pattern and keeps playing it regardless of knob/note changes)", {"Off", "On"});
 		configSwitch(ROUTING_PARAM, 0.f, 2.f, 0.f, "Voice routing", {"Layered (Voice 1)", "Split A\u00b7B", "External Out Only"});
 		configParam(REST_PARAM, 0.f, 1.f, 0.1f, "Rest probability", "%", 0, 100);
 		configButton(DICE_ARTI, "Randomize Rest+Legato (ARTI)");
@@ -128,7 +141,7 @@ struct SpacesCommand : Module {
 		configButton(TIME_NUDGE_DOWN, "Nudge Rate+Octaves down");
 		configButton(TIME_NUDGE_UP, "Nudge Rate+Octaves up");
 		configParam(ENTROPY_PARAM, -1.f, 1.f, 0.f, "Entropy (play direction)");
-		configParam(HARMONY_PARAM, 0.f, 1.f, 0.f, "Harmony");
+		configParam(HARMONY_PARAM, 0.f, 1.f, 0.f, "Harmony (chord size when POLY is on: 0.25-0.5=2 notes, 0.5-0.75=3, 0.75+=4 -- Voice 2 only carries the first extra tone)");
 		configParam(CHAOS_PARAM, 0.f, 1.f, 0.f, "Chaos");
 		configButton(DICE_NAVY, "Randomize Entropy+Harmony+Chaos (NAVY)");
 		configButton(NAVY_NUDGE_DOWN, "Nudge Entropy+Harmony+Chaos down");
@@ -333,7 +346,30 @@ struct SpacesCommand : Module {
 		bool latchOn = latchOnState;
 		bool freezeOn = freezeOnState;
 		if (!heldNotes.empty() && latchOn) latchedNotes = heldNotes;
-		std::vector<int>& notesToPlay = latchOn ? latchedNotes : heldNotes;
+
+		// FREEZE: capture a full snapshot the instant it's engaged (rising
+		// edge only), matching the original exactly.
+		if (freezeOn && !freezeWasOn) {
+			frozenRest = rest; frozenHarmony = harmonyF; frozenChaos = chaosF; frozenEntropy = entropy;
+			frozenRate01 = rate01; frozenOctaveShift = octaveShift;
+			for (int i = 0; i < 8; i++) frozenFaders[i] = displayFaderValue[i];
+			frozenHeldNotes = heldNotes;
+			frozenLatchedNotes = latchedNotes;
+		}
+		freezeWasOn = freezeOn;
+
+		// Effective values: the frozen snapshot while FREEZE is engaged,
+		// live values otherwise. Everything below the note-generation
+		// point reads *Eff, never the raw live variables directly.
+		float restEff = freezeOn ? frozenRest : rest;
+		float harmonyEff = freezeOn ? frozenHarmony : harmonyF;
+		float chaosEff = freezeOn ? frozenChaos : chaosF;
+		float entropyEff = freezeOn ? frozenEntropy : entropy;
+		float rate01Eff = freezeOn ? frozenRate01 : rate01;
+		int octaveShiftEff = freezeOn ? frozenOctaveShift : octaveShift;
+		std::vector<int>& notesToPlay = freezeOn
+			? (latchOn ? frozenLatchedNotes : frozenHeldNotes)
+			: (latchOn ? latchedNotes : heldNotes);
 
 		// Clock-presence run logic: patched CLOCK drives steps (patching/
 		// unpatching IS start/stop); unpatched free-runs off RATE, gated
@@ -351,7 +387,7 @@ struct SpacesCommand : Module {
 			// 0.125 for 1/4, 1/8, 1/16, 1/32) -- a FINER subdivision means
 			// MORE steps per incoming pulse, not fewer. Index 2 (1/16) is
 			// the baseline, needing 4 steps per quarter-note pulse.
-			int rateIdx = clamp((int)std::round(rate01 * 3.f), 0, 3);
+			int rateIdx = clamp((int)std::round(rate01Eff * 3.f), 0, 3);
 			int subdivisionCount = (rateIdx == 0) ? 1 : (rateIdx == 1) ? 2 : (rateIdx == 2) ? 4 : 8;
 
 			if (rawClockEdge) {
@@ -376,8 +412,17 @@ struct SpacesCommand : Module {
 				}
 			}
 		} else {
-			bool playing = !notesToPlay.empty() || freezeOn;
-			double bpm = 40.0 + rate01 * 200.0;  // matches original: 40-240 BPM free-run
+			// Deliberate departure from source here: the original always
+			// gates on a held note (or FREEZE), because it's a MIDI
+			// arpeggiator built to be played from a keyboard. Command is a
+			// standalone eurorack sequencer now -- ARP mode still needs a
+			// held/latched note or FREEZE (it has nothing to arpeggiate
+			// without one), but SEQ mode never reads notesToPlay for pitch
+			// at all, so gating it on a held note was pure inherited VST
+			// behavior with no modular justification. SEQ mode now runs on
+			// CLOCK/free-run alone, unconditionally.
+			bool playing = arpSeqOnState ? (!notesToPlay.empty() || freezeOn) : true;
+			double bpm = 40.0 + rate01Eff * 200.0;  // matches original: 40-240 BPM free-run
 			double stepSamples = args.sampleRate * (60.0 / std::max(1.0, bpm)) * 0.25;
 			// Swing: matches original exactly -- even-indexed steps get
 			// lengthened, odd-indexed steps get shortened, up to 45% of
@@ -406,10 +451,10 @@ struct SpacesCommand : Module {
 
 		if (stepTriggered) {
 			int playDirection = 0;
-			if (entropy >= -0.1f && entropy <= 0.1f) playDirection = 0;
-			else if (entropy > 0.1f && entropy <= 0.5f) playDirection = 1;
-			else if (entropy > 0.5f) playDirection = 2;
-			else if (entropy < -0.1f && entropy >= -0.5f) playDirection = 3;
+			if (entropyEff >= -0.1f && entropyEff <= 0.1f) playDirection = 0;
+			else if (entropyEff > 0.1f && entropyEff <= 0.5f) playDirection = 1;
+			else if (entropyEff > 0.5f) playDirection = 2;
+			else if (entropyEff < -0.1f && entropyEff >= -0.5f) playDirection = 3;
 			else playDirection = 4;
 
 			int localStep = currentStep;
@@ -429,13 +474,22 @@ struct SpacesCommand : Module {
 			}
 			currentStep = localStep;
 
-			float morphedFader = crossfade(sceneA.faders[localStep], sceneB.faders[localStep], morph);
+			float morphedFader = freezeOn ? frozenFaders[localStep] : crossfade(sceneA.faders[localStep], sceneB.faders[localStep], morph);
 			float density = params[DENSITY_PARAM].getValue();
 			float faderProb = morphedFader;
 			if (density < 0.5f) faderProb = morphedFader * (density / 0.5f);
 			else if (density > 0.5f) faderProb = morphedFader + (1.f - morphedFader) * ((density - 0.5f) / 0.5f);
 
-			if (random::uniform() <= faderProb && !(random::uniform() <= rest)) {
+			// ARP mode has nothing to arpeggiate without a held/latched note
+			// (or FREEZE) -- rest rather than falling back to a SEQ-style
+			// pitch. SEQ mode never needed notesToPlay for pitch, so it's
+			// never gated here (see the free-run "playing" gate above,
+			// which already made SEQ mode note-independent; this closes
+			// the same gap for the CLOCK-patched path, where steps always
+			// fire regardless of held notes).
+			bool arpNeedsNotes = arpSeqOnState && notesToPlay.empty() && !freezeOn;
+
+			if (!arpNeedsNotes && random::uniform() <= faderProb && !(random::uniform() <= restEff)) {
 				int rootKeyIdx = (int)std::round(params[ROOT_KEY_PARAM].getValue());
 				int scaleIdx = (int)std::round(params[SCALE_TYPE_PARAM].getValue());
 				static const std::vector<std::vector<int>> scales = {
@@ -444,29 +498,59 @@ struct SpacesCommand : Module {
 					{0,2,3,5,7,8,11,12}, {0,2,3,5,7,9,11,12}
 				};
 				const std::vector<int>& scaleOffsets = scales[clamp(scaleIdx, 0, 9)];
-				int pitch;
-				if (arpSeqOnState && !notesToPlay.empty())
-					pitch = notesToPlay[localStep % notesToPlay.size()] + 12 * octaveShift;
-				else
-					pitch = 48 + rootKeyIdx + scaleOffsets[localStep % (int)scaleOffsets.size()] + 12 * octaveShift;
-				// CHAOS: independent random +-1 octave jump on the primary note, matching
-				// the original exactly -- this was computed (chaosF/displayChaos) but never
-				// actually applied anywhere. Not gated by POLY (unlike HARMONY).
-				if (chaosF > 0.2f && random::uniform() <= chaosF)
-					pitch += (random::uniform() < 0.5f) ? 12 : -12;
-				// Matches the original VST's juce::jlimit(0, 127, ...) -- our port was
-				// missing this clamp entirely, allowing pitch to run arbitrarily high
-				// when root+scale+octave stacked up.
-				pitch = clamp(pitch, 0, 127);
+				int rawPitch, octaveBase;
+				if (arpSeqOnState && !notesToPlay.empty()) {
+					rawPitch = notesToPlay[localStep % notesToPlay.size()];
+					octaveBase = ((rawPitch - rootKeyIdx) / 12) * 12 + rootKeyIdx;
+				} else {
+					rawPitch = 48 + rootKeyIdx + scaleOffsets[localStep % (int)scaleOffsets.size()];
+					octaveBase = ((rawPitch - rootKeyIdx) / 12) * 12 + rootKeyIdx;
+				}
 
-				float pitchVolt = (pitch - 60) / 12.f;
-				lastPitchVolt = pitchVolt;
+				// CHAOS: independent random +-1 octave jump, rolled separately
+				// per note (matching the original's per-pitchList-entry roll)
+				// -- applied to both Voice 1 and, when POLY adds a second
+				// note, Voice 2 independently.
+				auto applyChaosAndClamp = [&](int p) {
+					if (chaosEff > 0.2f && random::uniform() <= chaosEff)
+						p += (random::uniform() < 0.5f) ? 12 : -12;
+					// Matches the original VST's juce::jlimit(0, 127, ...).
+					return clamp(p + 12 * octaveShiftEff, 0, 127);
+				};
 
-				// Both voices always receive the same triggered note, every
-				// step -- matches the real original exactly (routing never
-				// gated which voice fires, only how audio got mixed, back
-				// when this module had audio). Each voice's own GATE LEN
-				// knob decides how long ITS gate output stays high.
+				int voice1Pitch = applyChaosAndClamp(rawPitch);
+
+				// POLY: chord-stacking, matching the original's HARMONY-tiered
+				// note count (2/3/4 notes for HARMONY 0.25-0.5/0.5-0.75/0.75+),
+				// built from scale-offsets stepped a third at a time. The
+				// original's own two internal voices always doubled the SAME
+				// chord rather than splitting it (only its MIDI-out actually
+				// carried the extra chord tones); since Command has two
+				// genuinely independent Pitch/Gate pairs, we do one better and
+				// actually split the chord across them -- Voice 1 keeps the
+				// root/arp note, Voice 2 takes the first harmony tone whenever
+				// HARMONY calls for 2+ notes. 3-4 note chords aren't
+				// representable with only 2 CV pairs, so anything past the
+				// first harmony tone is dropped -- a disclosed simplification.
+				int voice2Pitch = voice1Pitch;
+				if (polyOnState) {
+					int maxAllowedNotes = (harmonyEff > 0.25f && harmonyEff < 0.5f) ? 2
+					                     : (harmonyEff >= 0.5f && harmonyEff < 0.75f) ? 3
+					                     : (harmonyEff >= 0.75f) ? 4 : 1;
+					if (maxAllowedNotes > 1) {
+						int harmonyPitch = octaveBase + scaleOffsets[(localStep + 2) % (int)scaleOffsets.size()];
+						voice2Pitch = applyChaosAndClamp(harmonyPitch);
+					}
+				}
+
+				lastVoice1PitchVolt = (voice1Pitch - 60) / 12.f;
+				lastVoice2PitchVolt = (voice2Pitch - 60) / 12.f;
+
+				// Both voices always receive a triggered note, every step --
+				// matches the real original exactly (routing never gated
+				// which voice fires, only how audio got mixed, back when
+				// this module had audio). Each voice's own GATE LEN knob
+				// decides how long ITS gate output stays high.
 				voice1GateCountdown = std::max(1, (int)std::round(lastStepIntervalSamples * params[VOICE1_GATE_LEN_PARAM].getValue()));
 				voice2GateCountdown = std::max(1, (int)std::round(lastStepIntervalSamples * params[VOICE2_GATE_LEN_PARAM].getValue()));
 			}
@@ -474,12 +558,12 @@ struct SpacesCommand : Module {
 				lights[STEP_LIGHTS + i].setBrightness(i == localStep ? 1.f : 0.f);
 		}
 
-		// CV Pitch/Gate outputs, one pair per voice. Pitch is identical on
-		// both (both voices always receive the same note); gate high/low
-		// is independent per voice, driven by each voice's own GATE LEN
-		// knob via the countdown decremented above.
-		outputs[VOICE1_PITCH_OUTPUT].setVoltage(lastPitchVolt);
-		outputs[VOICE2_PITCH_OUTPUT].setVoltage(lastPitchVolt);
+		// CV Pitch/Gate outputs, one pair per voice. Pitch matches on both
+		// unless POLY splits a chord across them (see above); gate
+		// high/low is independent per voice either way, driven by each
+		// voice's own GATE LEN knob via the countdown decremented above.
+		outputs[VOICE1_PITCH_OUTPUT].setVoltage(lastVoice1PitchVolt);
+		outputs[VOICE2_PITCH_OUTPUT].setVoltage(lastVoice2PitchVolt);
 		outputs[VOICE1_GATE_OUTPUT].setVoltage(voice1GateCountdown > 0 ? 10.f : 0.f);
 		outputs[VOICE2_GATE_OUTPUT].setVoltage(voice2GateCountdown > 0 ? 10.f : 0.f);
 	}
