@@ -31,7 +31,7 @@ struct SpacesCommand : Module {
 		ROOT_KEY_PARAM, SCALE_TYPE_PARAM, DENSITY_PARAM, SWING_PARAM,
 		PARAMS_LEN
 	};
-	enum InputId { VOCT_INPUT, GATE_INPUT, VELOCITY_INPUT, CLOCK_INPUT, INPUTS_LEN };
+	enum InputId { VOCT_INPUT, GATE_INPUT, VELOCITY_INPUT, CLOCK_INPUT, RESET_INPUT, INPUTS_LEN };
 	enum OutputId { VOICE1_PITCH_OUTPUT, VOICE1_GATE_OUTPUT, VOICE2_PITCH_OUTPUT, VOICE2_GATE_OUTPUT, OUTPUTS_LEN };
 	enum LightId {
 		ENUMS(STEP_LIGHTS, 8), SCENE_A_LIGHT, SCENE_B_LIGHT,
@@ -91,7 +91,7 @@ struct SpacesCommand : Module {
 	int frozenOctaveShift = 0;
 	float frozenFaders[8] = {};
 	std::vector<int> frozenHeldNotes, frozenLatchedNotes;
-	dsp::SchmittTrigger sceneATrig, sceneBTrig, clockTrig;
+	dsp::SchmittTrigger sceneATrig, sceneBTrig, clockTrig, resetTrig;
 	dsp::SchmittTrigger diceArtiTrig, diceTimeTrig, diceNavyTrig, meloTrig;
 
 	// LATCH/ARP-SEQ/POLY/FREEZE/ROUTING are also momentary buttons that
@@ -144,6 +144,7 @@ struct SpacesCommand : Module {
 		configInput(GATE_INPUT, "Gate (poly, held notes)");
 		configInput(VELOCITY_INPUT, "Velocity (poly)");
 		configInput(CLOCK_INPUT, "Clock (patched = external run/stop; unpatched = free-run on RATE)");
+		configInput(RESET_INPUT, "Reset (rising edge jumps the sequencer back to step 1)");
 		configOutput(VOICE1_PITCH_OUTPUT, "Voice 1 pitch (1V/oct)");
 		configOutput(VOICE1_GATE_OUTPUT, "Voice 1 gate");
 		configOutput(VOICE2_PITCH_OUTPUT, "Voice 2 pitch (1V/oct)");
@@ -215,6 +216,29 @@ struct SpacesCommand : Module {
 		json_object_set_new(rootJ, "polyOn", json_boolean(polyOnState));
 		json_object_set_new(rootJ, "freezeOn", json_boolean(freezeOnState));
 		json_object_set_new(rootJ, "routingState", json_integer(routingState));
+		// Fix: which scene was focused, and BOTH scenes' full stored data,
+		// were never saved -- only the live params were (Rack's own native
+		// serialization), which only reflects whichever scene happened to
+		// be focused at save time. The unfocused scene's data silently
+		// reverted to construction defaults on every reload, and the
+		// SCENE A/B focus light could show the wrong one entirely.
+		json_object_set_new(rootJ, "focusB", json_boolean(focusB));
+		auto sceneToJson = [](const SceneState& s) {
+			json_t* sJ = json_object();
+			json_t* fJ = json_array();
+			for (int i = 0; i < 8; i++) json_array_append_new(fJ, json_real(s.faders[i]));
+			json_object_set_new(sJ, "faders", fJ);
+			json_object_set_new(sJ, "rest", json_real(s.rest));
+			json_object_set_new(sJ, "legato", json_real(s.legato));
+			json_object_set_new(sJ, "rate", json_real(s.rate));
+			json_object_set_new(sJ, "entropy", json_real(s.entropy));
+			json_object_set_new(sJ, "harmony", json_real(s.harmony));
+			json_object_set_new(sJ, "chaos", json_real(s.chaos));
+			json_object_set_new(sJ, "octaves", json_real(s.octaves));
+			return sJ;
+		};
+		json_object_set_new(rootJ, "sceneA", sceneToJson(sceneA));
+		json_object_set_new(rootJ, "sceneB", sceneToJson(sceneB));
 		return rootJ;
 	}
 
@@ -229,6 +253,24 @@ struct SpacesCommand : Module {
 		if (freezeJ) freezeOnState = json_boolean_value(freezeJ);
 		json_t* routingJ = json_object_get(rootJ, "routingState");
 		if (routingJ) routingState = clamp((int)json_integer_value(routingJ), 0, 2);
+		json_t* focusBJ = json_object_get(rootJ, "focusB");
+		if (focusBJ) focusB = json_boolean_value(focusBJ);
+		auto sceneFromJson = [](json_t* sJ, SceneState& s) {
+			if (!sJ) return;
+			json_t* fJ = json_object_get(sJ, "faders");
+			if (fJ) for (int i = 0; i < 8 && i < (int)json_array_size(fJ); i++)
+				s.faders[i] = (float)json_real_value(json_array_get(fJ, i));
+			json_t* v;
+			if ((v = json_object_get(sJ, "rest"))) s.rest = (float)json_real_value(v);
+			if ((v = json_object_get(sJ, "legato"))) s.legato = (float)json_real_value(v);
+			if ((v = json_object_get(sJ, "rate"))) s.rate = (float)json_real_value(v);
+			if ((v = json_object_get(sJ, "entropy"))) s.entropy = (float)json_real_value(v);
+			if ((v = json_object_get(sJ, "harmony"))) s.harmony = (float)json_real_value(v);
+			if ((v = json_object_get(sJ, "chaos"))) s.chaos = (float)json_real_value(v);
+			if ((v = json_object_get(sJ, "octaves"))) s.octaves = (float)json_real_value(v);
+		};
+		sceneFromJson(json_object_get(rootJ, "sceneA"), sceneA);
+		sceneFromJson(json_object_get(rootJ, "sceneB"), sceneB);
 	}
 
 	void process(const ProcessArgs& args) override {
@@ -317,6 +359,19 @@ struct SpacesCommand : Module {
 		std::vector<int>& notesToPlay = freezeOn
 			? (latchOn ? frozenLatchedNotes : frozenHeldNotes)
 			: (latchOn ? latchedNotes : heldNotes);
+
+		// RESET: rising edge jumps the sequencer back to step 1 immediately
+		// -- repositions the pointer and updates the step lights right away,
+		// but doesn't itself fire a note; playback of step 1 happens
+		// normally on the next clock/free-run step trigger, same as any
+		// other step. Standard eurorack convention -- scoped to position
+		// only, doesn't touch clock phase/timing or note-hold state.
+		if (resetTrig.process(inputs[RESET_INPUT].getVoltage())) {
+			currentStep = 0;
+			goingForward = true;
+			for (int i = 0; i < 8; i++)
+				lights[STEP_LIGHTS + i].setBrightness(i == 0 ? 1.f : 0.f);
+		}
 
 		// Clock-presence run logic: patched CLOCK drives steps (patching/
 		// unpatching IS start/stop); unpatched free-runs off RATE, gated
@@ -942,12 +997,13 @@ struct SpacesCommandWidget : ModuleWidget {
 
 // I/O
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.4, 19.2)), module, SpacesCommand::CLOCK_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(42.44, 19.2)), module, SpacesCommand::VOCT_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(65.47, 19.2)), module, SpacesCommand::GATE_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(88.5, 19.2)), module, SpacesCommand::VELOCITY_INPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(111.54, 19.2)), module, SpacesCommand::VOICE1_PITCH_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(134.57, 19.2)), module, SpacesCommand::VOICE1_GATE_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(157.6, 19.2)), module, SpacesCommand::VOICE2_PITCH_OUTPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(39.56, 19.2)), module, SpacesCommand::RESET_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(59.71, 19.2)), module, SpacesCommand::VOCT_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(79.87, 19.2)), module, SpacesCommand::GATE_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(100.02, 19.2)), module, SpacesCommand::VELOCITY_INPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(120.17, 19.2)), module, SpacesCommand::VOICE1_PITCH_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(140.33, 19.2)), module, SpacesCommand::VOICE1_GATE_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(160.48, 19.2)), module, SpacesCommand::VOICE2_PITCH_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(180.64, 19.2)), module, SpacesCommand::VOICE2_GATE_OUTPUT));
 
 		// FEEL: macro knobs -- custom MorphKnob for live scene-blend display, matching original VST
