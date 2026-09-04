@@ -43,7 +43,9 @@ R = {
     "bezel":      2.6,
     "port":       26 / 2 / (75/25.4),
     "light":      1.0,
-    "fader_half": 12.0,
+    "fader_half": 13.5,   # was 12.0 -- grew into the space freed by moving the
+                          # step-position LED into the fader cap itself
+                          # (see PATTERN section) instead of a separate light row
     "track_half": 1.05,     # another 30% thinner per explicit request (was 1.5)
 }
 
@@ -64,8 +66,8 @@ ACCENT_RING_COLORS = [MAROON, MAROON, BRASS, NAVY, NAVY, NAVY, BRASS]
 
 LABEL_GAP = 1.2
 LABEL_H = 1.8
-GAP = 7.5  # widened from 2.5 -- removing the VOICE row freed ~20mm of vertical
-           # space that would otherwise sit as dead margin at the panel bottom
+GAP = 9.5  # widened again -- removing the nudge-button row and merging the
+           # step LED into the fader cap freed more vertical space
 SIDE_TITLE_W = 7.0
 MIN_MARGIN = 2.3   # guaranteed clearance above/below content in every box
 
@@ -133,8 +135,7 @@ y = TITLE_H
 # I/O reserves extra headroom for the two GATE LEN knobs that sit above
 # the V1 GATE / V2 GATE output jacks (the other 6 jacks leave that space
 # blank, same pattern as PATTERN's light-above-fader treatment below).
-io_knob_extra = R["knob_voice"]*2 + 1.0
-io_h = row_height(R["port"], extra=io_knob_extra)
+io_h = row_height(R["port"])
 section("io", x0, y, full_w, io_h, "I/O")
 y += io_h + GAP
 
@@ -152,7 +153,7 @@ section("crossfader", x0, y, scene_w, row_sk_h, "SCENE")
 section("key", x0 + scene_w + GAP, y, key_w, row_sk_h, "KEY")
 y += row_sk_h + GAP
 
-steps_h = row_height(R["fader_half"], extra=R["light"]*2 + 0.8)
+steps_h = row_height(R["fader_half"])
 section("steps", x0, y, full_w, steps_h, "PATTERN")
 y += steps_h
 
@@ -167,7 +168,7 @@ def micro(text, x, y, color=MICRO, size=1.7):
     add(p2)
 
 layout = {"steps": [], "crossfader": {}, "controls": [], "key": [], "macro": [],
-          "io": [], "gatelen": [], "randomize": []}
+          "io": [], "randomize": []}
 
 def grid_x(name, n, i, pad=6.0):
     x, sy, w, h, _ = sections[name]
@@ -177,14 +178,12 @@ def grid_x(name, n, i, pad=6.0):
 
 # ---- I/O ----
 iox, ioy, iow, ioh, _ = sections["io"]
-port_y = centered_y(ioy, ioh, R["port"], extra=io_knob_extra)
-gatelen_knob_y = port_y - R["port"] - 0.8 - R["knob_voice"]
+port_y = centered_y(ioy, ioh, R["port"])
 label_y_io = port_y + R["port"] + LABEL_GAP + LABEL_H
 io_names = ["CLOCK","V/OCT","GATE","VEL","V1 PITCH","V1 GATE","V2 PITCH","V2 GATE"]
 io_params = ["CLOCK_INPUT","VOCT_INPUT","GATE_INPUT","VELOCITY_INPUT",
              "VOICE1_PITCH_OUTPUT","VOICE1_GATE_OUTPUT","VOICE2_PITCH_OUTPUT","VOICE2_GATE_OUTPUT"]
 io_dirs = ["in","in","in","in","out","out","out","out"]
-io_gatelen_param = {"V1 GATE": "VOICE1_GATE_LEN_PARAM", "V2 GATE": "VOICE2_GATE_LEN_PARAM"}
 n_io = len(io_names)
 pad_io = R["port"] + 2.0
 usable_io = iow - 2*pad_io
@@ -192,9 +191,6 @@ for i, (nm, pnm, dr) in enumerate(zip(io_names, io_params, io_dirs)):
     cx = iox + pad_io + (usable_io / (n_io-1)) * i
     micro(nm, cx, label_y_io, size=1.5)
     layout["io"].append({"x": round(cx,2), "y": round(port_y,2), "param": pnm, "dir": dr})
-    if nm in io_gatelen_param:
-        add(f'<circle cx="{cx}" cy="{gatelen_knob_y}" r="{R["knob_voice"]+1.0}" fill="none" stroke="{BORDER}" stroke-width="0.3" opacity="0.35"/>')
-        layout["gatelen"].append({"x": round(cx,2), "y": round(gatelen_knob_y,2), "param": io_gatelen_param[nm], "name": nm})
 
 # ---- FEEL ----
 mx0, my0, mw0, mh0, _ = sections["macro"]
@@ -259,9 +255,11 @@ for i, (nm, pnm) in enumerate(zip(key_names, key_params)):
 
 # ---- PATTERN: 8 faders (2/3 width) + randomize cluster (1/3 width) ----
 sx, sy, sw, sh, _ = sections["steps"]
-light_extra = R["light"]*2 + 0.8
-fader_y = centered_y(sy, sh, R["fader_half"], extra=light_extra)
-light_y = fader_y - R["fader_half"] - 0.8 - R["light"]
+# Step-position LED now lives inside the fader cap itself (drawn by the
+# VFaderHandle widget, keyed to its own light), not as a separate row of
+# lights above the track -- the vertical space that reservation used went
+# into a taller/chunkier fader track instead (R["fader_half"] above).
+fader_y = centered_y(sy, sh, R["fader_half"])
 label_y = fader_y + R["fader_half"] + LABEL_GAP + LABEL_H
 
 faders_w = sw * (2.0/3.0)
@@ -271,7 +269,7 @@ for i in range(8):
     cx = sx + step_x
     add(f'<rect x="{cx-1.3}" y="{fader_y-R["fader_half"]}" width="2.6" height="{R["fader_half"]*2}" rx="1.3" fill="{BG2}" stroke="{BORDER}" stroke-width="0.25" stroke-opacity="0.6"/>')
     micro(str(i+1), cx, label_y)
-    layout["steps"].append({"x": round(cx,2), "light_y": round(light_y,2), "fader_y": round(fader_y,2),
+    layout["steps"].append({"x": round(cx,2), "fader_y": round(fader_y,2),
                               "track_y0": round(fader_y-R["fader_half"],2), "track_y1": round(fader_y+R["fader_half"],2)})
 
 divider_x = sx + faders_w + 4.0
@@ -280,30 +278,27 @@ cluster_x0 = sx + faders_w + 4.0
 cluster_w = sw - faders_w - 4.0
 
 R["bezel_big"] = 5.5   # dice buttons
-R["nudge"] = 1.8       # small -/+ nudge buttons
 
 rand_names = ["MELO", "ARTI", "TIME", "NAVY"]
 rand_params = ["MELO_PARAM", "DICE_ARTI", "DICE_TIME", "DICE_NAVY"]
-nudge_params = [("MELO_NUDGE_DOWN","MELO_NUDGE_UP"), ("ARTI_NUDGE_DOWN","ARTI_NUDGE_UP"),
-                 ("TIME_NUDGE_DOWN","TIME_NUDGE_UP"), ("NAVY_NUDGE_DOWN","NAVY_NUDGE_UP")]
 
 # ---- vertical stack, computed top-down, asserted to fit within sh ----
+# Nudge (-/+) buttons removed entirely (no good use found for them, per
+# explicit feedback) -- the DICE box is now just title -> dice button ->
+# label, freeing the vertical space the nudge row + its two gaps used.
 box_pad = 1.0
 title_h = 4.5
-gap1 = 1.5   # title -> dice button
-gap2 = 1.8   # dice button -> nudge row
-gap3 = 1.2   # nudge row -> label
+gap1 = 1.5    # title -> dice button
+gap2 = 2.0    # dice button -> label
 label_h_dice = 1.8
 
 dice_d = R["bezel_big"] * 2
-nudge_row_h = R["nudge"] * 2
-stack_h = title_h + gap1 + dice_d + gap2 + nudge_row_h + gap3 + label_h_dice
+stack_h = title_h + gap1 + dice_d + gap2 + label_h_dice
 box_h = stack_h + 2*box_pad
 assert box_h <= sh, f"DICE box overflows PATTERN row: needs {box_h:.1f}mm, row has {sh:.1f}mm"
 
 # ---- horizontal: 4 equal columns, computed to fit within cluster_w ----
-nudge_pair_w = R["nudge"]*4 + 1.0   # two nudge buttons + gap between them
-col_w = max(dice_d, nudge_pair_w) + 1.0
+col_w = dice_d + 1.0
 col_gap = 1.0
 row_w = col_w*4 + col_gap*3
 box_w = row_w + 2*box_pad
@@ -317,18 +312,13 @@ p, _ = txt("DICE", box_x0 + box_w/2, box_y0 + title_h - 1.0, 2.2, TEXT_DIM, anch
 add(p)
 
 dice_y = box_y0 + title_h + gap1 + R["bezel_big"]
-nudge_y = dice_y + R["bezel_big"] + gap2 + R["nudge"]
-label_y_dice = nudge_y + R["nudge"] + gap3 + label_h_dice
+label_y_dice = dice_y + R["bezel_big"] + gap2 + label_h_dice
 
 row_x0 = box_x0 + box_pad
 for i, (nm, pnm) in enumerate(zip(rand_names, rand_params)):
     col_cx = row_x0 + col_w/2 + i*(col_w + col_gap)
     micro(nm, col_cx, label_y_dice, size=1.5)
     layout["randomize"].append({"x": round(col_cx,2), "y": round(dice_y,2), "param": pnm, "name": nm})
-    down_x = col_cx - (R["nudge"]*2 + 0.5)
-    up_x = col_cx + (R["nudge"]*2 + 0.5)
-    layout["randomize"][-1]["nudge_down"] = {"x": round(down_x,2), "y": round(nudge_y,2), "param": nudge_params[i][0]}
-    layout["randomize"][-1]["nudge_up"] = {"x": round(up_x,2), "y": round(nudge_y,2), "param": nudge_params[i][1]}
 svg.append('</svg>')
 open("res/SpacesCommand.svg", "w").write("\n".join(svg))
 json.dump(layout, open("command_layout.json","w"), indent=2)
