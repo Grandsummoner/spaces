@@ -941,50 +941,50 @@ struct SpacesCommandWidget : ModuleWidget {
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/SpacesCommand.svg")));
 
 // I/O
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.4, 27.54)), module, SpacesCommand::CLOCK_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(42.44, 27.54)), module, SpacesCommand::VOCT_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(65.47, 27.54)), module, SpacesCommand::GATE_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(88.5, 27.54)), module, SpacesCommand::VELOCITY_INPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(111.54, 27.54)), module, SpacesCommand::VOICE1_PITCH_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(134.57, 27.54)), module, SpacesCommand::VOICE1_GATE_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(157.6, 27.54)), module, SpacesCommand::VOICE2_PITCH_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(180.64, 27.54)), module, SpacesCommand::VOICE2_GATE_OUTPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.4, 19.2)), module, SpacesCommand::CLOCK_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(42.44, 19.2)), module, SpacesCommand::VOCT_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(65.47, 19.2)), module, SpacesCommand::GATE_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(88.5, 19.2)), module, SpacesCommand::VELOCITY_INPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(111.54, 19.2)), module, SpacesCommand::VOICE1_PITCH_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(134.57, 19.2)), module, SpacesCommand::VOICE1_GATE_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(157.6, 19.2)), module, SpacesCommand::VOICE2_PITCH_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(180.64, 19.2)), module, SpacesCommand::VOICE2_GATE_OUTPUT));
 
 		// FEEL: macro knobs -- custom MorphKnob for live scene-blend display, matching original VST
 		{
-			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(21.0, 51.36)), module, SpacesCommand::REST_PARAM);
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(21.0, 45.02)), module, SpacesCommand::REST_PARAM);
 			if (module) k->displayValuePtr = &module->displayRest;
 			addParam(k);
 		}
 		{
-			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(35.27, 51.36)), module, SpacesCommand::LEGATO_PARAM);
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(35.27, 45.02)), module, SpacesCommand::LEGATO_PARAM);
 			if (module) k->displayValuePtr = &module->displayLegato;
 			addParam(k);
 		}
 		{
-			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(49.54, 51.36)), module, SpacesCommand::RATE_PARAM);
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(49.54, 45.02)), module, SpacesCommand::RATE_PARAM);
 			if (module) k->displayValuePtr = &module->displayRate;
 			k->quantizeSteps = 201;  // 1 BPM per detent across the real 40-240 BPM range
 			k->numTicks = 9;  // decorative reference marks (too many BPM steps to tick individually)
 			addParam(k);
 		}
 		{
-			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(63.81, 51.36)), module, SpacesCommand::ENTROPY_PARAM);
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(63.81, 45.02)), module, SpacesCommand::ENTROPY_PARAM);
 			if (module) k->displayValuePtr = &module->displayEntropy;
 			addParam(k);
 		}
 		{
-			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(78.08, 51.36)), module, SpacesCommand::HARMONY_PARAM);
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(78.08, 45.02)), module, SpacesCommand::HARMONY_PARAM);
 			if (module) k->displayValuePtr = &module->displayHarmony;
 			addParam(k);
 		}
 		{
-			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(92.35, 51.36)), module, SpacesCommand::CHAOS_PARAM);
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(92.35, 45.02)), module, SpacesCommand::CHAOS_PARAM);
 			if (module) k->displayValuePtr = &module->displayChaos;
 			addParam(k);
 		}
 		{
-			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(106.62, 51.36)), module, SpacesCommand::OCTAVES_PARAM);
+			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(106.62, 45.02)), module, SpacesCommand::OCTAVES_PARAM);
 			if (module) k->displayValuePtr = &module->displayOctaves;
 			k->numTicks = 7;  // one tick per whole-octave position (-3..+3); snapping itself is engine-level (snapEnabled)
 			addParam(k);
@@ -992,28 +992,28 @@ struct SpacesCommandWidget : ModuleWidget {
 
 		// CONTROLS: square toggle buttons, navy when engaged (real toggle now, not momentary-read)
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(136.12, 51.36)), module, SpacesCommand::LATCH_PARAM);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(138.12, 45.02)), module, SpacesCommand::LATCH_PARAM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::LATCH_LIGHT;
 			btn->litColor = nvgRGB(0x2E, 0x4A, 0x6E);
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(147.1, 51.36)), module, SpacesCommand::ARPSEQ_PARAM);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(148.6, 45.02)), module, SpacesCommand::ARPSEQ_PARAM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::ARPSEQ_LIGHT;
 			btn->litColor = nvgRGB(0x2E, 0x4A, 0x6E);
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(158.08, 51.36)), module, SpacesCommand::POLY_PARAM);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(159.08, 45.02)), module, SpacesCommand::POLY_PARAM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::POLY_LIGHT;
 			btn->litColor = nvgRGB(0x2E, 0x4A, 0x6E);
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(169.06, 51.36)), module, SpacesCommand::FREEZE_PARAM);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(169.56, 45.02)), module, SpacesCommand::FREEZE_PARAM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::FREEZE_LIGHT;
 			btn->litColor = nvgRGB(0x2E, 0x4A, 0x6E);
@@ -1023,7 +1023,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			// Stub: cycles/lights as before, but has no effect on this
 			// module's own output anymore -- reserved for a future
 			// connector/voice module to read.
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(180.04, 51.36)), module, SpacesCommand::ROUTING_PARAM);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(180.04, 45.02)), module, SpacesCommand::ROUTING_PARAM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::ROUTING_LIGHT;
 			btn->litColor = nvgRGB(0x2E, 0x4A, 0x6E);
@@ -1032,7 +1032,7 @@ struct SpacesCommandWidget : ModuleWidget {
 
 		// SCENE: A/B focus (square, letter baked in, red glow when focused) + crossfader fader cap
 		{
-			auto* btnA = createParamCentered<SquareButton>(mm2px(Vec(20.0, 74.88)), module, SpacesCommand::SCENE_A_PARAM);
+			auto* btnA = createParamCentered<SquareButton>(mm2px(Vec(20.0, 70.54)), module, SpacesCommand::SCENE_A_PARAM);
 			btnA->mod = module;
 			btnA->lightId = SpacesCommand::SCENE_A_LIGHT;
 			btnA->litColor = nvgRGB(0xE0, 0x40, 0x40);
@@ -1040,7 +1040,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(btnA);
 		}
 		{
-			auto* btnB = createParamCentered<SquareButton>(mm2px(Vec(111.24, 74.88)), module, SpacesCommand::SCENE_B_PARAM);
+			auto* btnB = createParamCentered<SquareButton>(mm2px(Vec(111.24, 70.54)), module, SpacesCommand::SCENE_B_PARAM);
 			btnB->mod = module;
 			btnB->lightId = SpacesCommand::SCENE_B_LIGHT;
 			btnB->litColor = nvgRGB(0xE0, 0x40, 0x40);
@@ -1048,26 +1048,30 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(btnB);
 		}
 		{
-			auto* xfHandle = createParamCentered<HCrossfaderHandle>(mm2px(Vec((30.75+100.49)/2.f, 74.88)), module, SpacesCommand::MORPH_PARAM);
-			xfHandle->trackX0Px = mm2px(Vec(30.75, 0)).x;
-			xfHandle->trackX1Px = mm2px(Vec(100.49, 0)).x;
-			xfHandle->centerY = mm2px(Vec(0, 74.88)).y;
+			auto* xfHandle = createParamCentered<HCrossfaderHandle>(mm2px(Vec((30.75+100.49)/2.f, 70.54)), module, SpacesCommand::MORPH_PARAM);
+			// Inset by half the cap's own width (9.0mm / 2 = 4.5mm) at each
+			// end, same fix as the vertical faders -- otherwise the cap
+			// overshoots the drawn track by half its own size at the
+			// extremes, since its position is centered on these bounds.
+			xfHandle->trackX0Px = mm2px(Vec(35.25, 0)).x;
+			xfHandle->trackX1Px = mm2px(Vec(95.99, 0)).x;
+			xfHandle->centerY = mm2px(Vec(0, 70.54)).y;
 			addParam(xfHandle);
 		}
 
 		// KEY: genuinely smaller stock component (Trimpot)
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(138.74, 73.38)), module, SpacesCommand::ROOT_KEY_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(152.84, 73.38)), module, SpacesCommand::SCALE_TYPE_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(166.94, 73.38)), module, SpacesCommand::DENSITY_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(181.04, 73.38)), module, SpacesCommand::SWING_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(140.74, 69.04)), module, SpacesCommand::ROOT_KEY_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(154.18, 69.04)), module, SpacesCommand::SCALE_TYPE_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(167.61, 69.04)), module, SpacesCommand::DENSITY_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(181.04, 69.04)), module, SpacesCommand::SWING_PARAM));
 
 		// PATTERN: custom vertical faders (live scene-morph display), each
 		// with its step-position LED embedded directly in the cap (see
 		// VFaderHandle::draw) instead of a separate row of lights above.
 		{
 			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(23.0, 102.24)), module, SpacesCommand::FADER_PARAM + 0);
-			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
-			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
+			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
+			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
 			fader->centerX = mm2px(Vec(23.0, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[0];
 			fader->mod = module;
@@ -1076,8 +1080,8 @@ struct SpacesCommandWidget : ModuleWidget {
 		}
 		{
 			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(36.72, 102.24)), module, SpacesCommand::FADER_PARAM + 1);
-			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
-			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
+			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
+			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
 			fader->centerX = mm2px(Vec(36.72, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[1];
 			fader->mod = module;
@@ -1086,8 +1090,8 @@ struct SpacesCommandWidget : ModuleWidget {
 		}
 		{
 			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(50.44, 102.24)), module, SpacesCommand::FADER_PARAM + 2);
-			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
-			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
+			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
+			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
 			fader->centerX = mm2px(Vec(50.44, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[2];
 			fader->mod = module;
@@ -1096,8 +1100,8 @@ struct SpacesCommandWidget : ModuleWidget {
 		}
 		{
 			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(64.15, 102.24)), module, SpacesCommand::FADER_PARAM + 3);
-			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
-			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
+			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
+			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
 			fader->centerX = mm2px(Vec(64.15, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[3];
 			fader->mod = module;
@@ -1106,8 +1110,8 @@ struct SpacesCommandWidget : ModuleWidget {
 		}
 		{
 			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(77.87, 102.24)), module, SpacesCommand::FADER_PARAM + 4);
-			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
-			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
+			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
+			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
 			fader->centerX = mm2px(Vec(77.87, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[4];
 			fader->mod = module;
@@ -1116,8 +1120,8 @@ struct SpacesCommandWidget : ModuleWidget {
 		}
 		{
 			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(91.59, 102.24)), module, SpacesCommand::FADER_PARAM + 5);
-			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
-			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
+			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
+			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
 			fader->centerX = mm2px(Vec(91.59, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[5];
 			fader->mod = module;
@@ -1126,8 +1130,8 @@ struct SpacesCommandWidget : ModuleWidget {
 		}
 		{
 			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(105.31, 102.24)), module, SpacesCommand::FADER_PARAM + 6);
-			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
-			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
+			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
+			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
 			fader->centerX = mm2px(Vec(105.31, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[6];
 			fader->mod = module;
@@ -1136,8 +1140,8 @@ struct SpacesCommandWidget : ModuleWidget {
 		}
 		{
 			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(119.03, 102.24)), module, SpacesCommand::FADER_PARAM + 7);
-			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
-			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
+			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
+			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
 			fader->centerX = mm2px(Vec(119.03, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[7];
 			fader->mod = module;
