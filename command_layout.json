@@ -164,37 +164,43 @@
       "dir": "in"
     },
     {
-      "x": 42.44,
+      "x": 39.56,
+      "y": 19.2,
+      "param": "RESET_INPUT",
+      "dir": "in"
+    },
+    {
+      "x": 59.71,
       "y": 19.2,
       "param": "VOCT_INPUT",
       "dir": "in"
     },
     {
-      "x": 65.47,
+      "x": 79.87,
       "y": 19.2,
       "param": "GATE_INPUT",
       "dir": "in"
     },
     {
-      "x": 88.5,
+      "x": 100.02,
       "y": 19.2,
       "param": "VELOCITY_INPUT",
       "dir": "in"
     },
     {
-      "x": 111.54,
+      "x": 120.17,
       "y": 19.2,
       "param": "VOICE1_PITCH_OUTPUT",
       "dir": "out"
     },
     {
-      "x": 134.57,
+      "x": 140.33,
       "y": 19.2,
       "param": "VOICE1_GATE_OUTPUT",
       "dir": "out"
     },
     {
-      "x": 157.6,
+      "x": 160.48,
       "y": 19.2,
       "param": "VOICE2_PITCH_OUTPUT",
       "dir": "out"

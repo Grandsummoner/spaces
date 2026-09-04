@@ -180,15 +180,20 @@ def grid_x(name, n, i, pad=6.0):
 iox, ioy, iow, ioh, _ = sections["io"]
 port_y = centered_y(ioy, ioh, R["port"])
 label_y_io = port_y + R["port"] + LABEL_GAP + LABEL_H
-io_names = ["CLOCK","V/OCT","GATE","VEL","V1 PITCH","V1 GATE","V2 PITCH","V2 GATE"]
-io_params = ["CLOCK_INPUT","VOCT_INPUT","GATE_INPUT","VELOCITY_INPUT",
+io_names = ["CLOCK","RESET","V/OCT","GATE","VEL","V1 PITCH","V1 GATE","V2 PITCH","V2 GATE"]
+io_params = ["CLOCK_INPUT","RESET_INPUT","VOCT_INPUT","GATE_INPUT","VELOCITY_INPUT",
              "VOICE1_PITCH_OUTPUT","VOICE1_GATE_OUTPUT","VOICE2_PITCH_OUTPUT","VOICE2_GATE_OUTPUT"]
-io_dirs = ["in","in","in","in","out","out","out","out"]
+io_dirs = ["in","in","in","in","in","out","out","out","out"]
+# Inputs get a navy ring (matches the mode-toggle accent), outputs get a
+# brass ring (matches TIME/RATE) -- differentiates direction at a glance
+# without introducing a new color to the palette.
+io_ring_color = {"in": NAVY, "out": BRASS}
 n_io = len(io_names)
 pad_io = R["port"] + 2.0
 usable_io = iow - 2*pad_io
 for i, (nm, pnm, dr) in enumerate(zip(io_names, io_params, io_dirs)):
     cx = iox + pad_io + (usable_io / (n_io-1)) * i
+    add(f'<circle cx="{cx}" cy="{port_y}" r="{R["port"]+1.6}" fill="none" stroke="{io_ring_color[dr]}" stroke-width="0.7" opacity="0.55"/>')
     micro(nm, cx, label_y_io, size=1.5)
     layout["io"].append({"x": round(cx,2), "y": round(port_y,2), "param": pnm, "dir": dr})
 
