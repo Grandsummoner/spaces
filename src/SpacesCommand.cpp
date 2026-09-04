@@ -23,19 +23,12 @@ struct SceneState {
 struct SpacesCommand : Module {
 	enum ParamId {
 		ENUMS(FADER_PARAM, 8),
-		MELO_PARAM, MELO_NUDGE_DOWN, MELO_NUDGE_UP,
+		MELO_PARAM,
 		SCENE_A_PARAM, SCENE_B_PARAM, MORPH_PARAM,
 		LATCH_PARAM, ARPSEQ_PARAM, POLY_PARAM, FREEZE_PARAM, ROUTING_PARAM,
-		REST_PARAM, DICE_ARTI, ARTI_NUDGE_DOWN, ARTI_NUDGE_UP, LEGATO_PARAM, RATE_PARAM, DICE_TIME, TIME_NUDGE_DOWN, TIME_NUDGE_UP,
-		ENTROPY_PARAM, HARMONY_PARAM, CHAOS_PARAM, DICE_NAVY, NAVY_NUDGE_DOWN, NAVY_NUDGE_UP, OCTAVES_PARAM,
+		REST_PARAM, DICE_ARTI, LEGATO_PARAM, RATE_PARAM, DICE_TIME,
+		ENTROPY_PARAM, HARMONY_PARAM, CHAOS_PARAM, DICE_NAVY, OCTAVES_PARAM,
 		ROOT_KEY_PARAM, SCALE_TYPE_PARAM, DENSITY_PARAM, SWING_PARAM,
-		// Per-voice GATE LEN: used to shape a synth envelope's release when
-		// this module had an audio engine; now shapes the CV gate pulse
-		// width sent out VOICE1/2_GATE_OUTPUT directly (5-100% of the step
-		// interval). Kept as two separate knobs even though both voices
-		// currently receive the same pitch/gate timing, so each output can
-		// still be given a different gate length.
-		VOICE1_GATE_LEN_PARAM, VOICE2_GATE_LEN_PARAM,
 		PARAMS_LEN
 	};
 	enum InputId { VOCT_INPUT, GATE_INPUT, VELOCITY_INPUT, CLOCK_INPUT, INPUTS_LEN };
@@ -74,10 +67,12 @@ struct SpacesCommand : Module {
 	double lastClockPulseIntervalSamples = 0.0;
 	int clockSubStepIndex = 0;
 	// Per-voice gate-output countdown: samples remaining with the gate
-	// held high, counted down from VOICE1/2_GATE_LEN_PARAM * the last
-	// measured step interval. Was previously used to schedule a SynthVoice
-	// envelope release; now it directly drives the VOICE1/2_GATE_OUTPUT
-	// jacks high/low.
+	// held high. GATE LEN is no longer a per-voice knob (removed to reduce
+	// panel clutter -- finer per-voice gate control belongs on a future
+	// downstream module, not stacked onto Command); both voices now use a
+	// fixed 95% of the step interval, matching the original single-voice
+	// default exactly.
+	static constexpr float kGateLenFraction = 0.95f;
 	int voice1GateCountdown = -1;  // -1 = gate currently low
 	int voice2GateCountdown = -1;
 
@@ -98,8 +93,6 @@ struct SpacesCommand : Module {
 	std::vector<int> frozenHeldNotes, frozenLatchedNotes;
 	dsp::SchmittTrigger sceneATrig, sceneBTrig, clockTrig;
 	dsp::SchmittTrigger diceArtiTrig, diceTimeTrig, diceNavyTrig, meloTrig;
-	dsp::SchmittTrigger meloNudgeDownTrig, meloNudgeUpTrig, artiNudgeDownTrig, artiNudgeUpTrig;
-	dsp::SchmittTrigger timeNudgeDownTrig, timeNudgeUpTrig, navyNudgeDownTrig, navyNudgeUpTrig;
 
 	// LATCH/ARP-SEQ/POLY/FREEZE/ROUTING are also momentary buttons that
 	// must TOGGLE persisted state -- same bug/fix as the wave buttons.
@@ -121,8 +114,6 @@ struct SpacesCommand : Module {
 		for (int i = 0; i < 8; i++)
 			configParam(FADER_PARAM + i, 0.f, 1.f, 1.f, string::f("Step %d probability", i + 1), "%", 0, 100);
 		configButton(MELO_PARAM, "Randomize pattern (MELO)");
-		configButton(MELO_NUDGE_DOWN, "Nudge pattern down");
-		configButton(MELO_NUDGE_UP, "Nudge pattern up");
 		configButton(SCENE_A_PARAM, "Focus Scene A");
 		configButton(SCENE_B_PARAM, "Focus Scene B");
 		configParam(MORPH_PARAM, 0.f, 1.f, 0.f, "Scene morph", "%", 0, 100);
@@ -133,19 +124,13 @@ struct SpacesCommand : Module {
 		configSwitch(ROUTING_PARAM, 0.f, 2.f, 0.f, "Voice routing", {"Layered (Voice 1)", "Split A\u00b7B", "External Out Only"});
 		configParam(REST_PARAM, 0.f, 1.f, 0.1f, "Rest probability", "%", 0, 100);
 		configButton(DICE_ARTI, "Randomize Rest+Legato (ARTI)");
-		configButton(ARTI_NUDGE_DOWN, "Nudge Rest+Legato down");
-		configButton(ARTI_NUDGE_UP, "Nudge Rest+Legato up");
 		configParam(LEGATO_PARAM, 0.f, 1.f, 0.5f, "Legato", "%", 0, 100);
 		configParam(RATE_PARAM, 0.f, 1.f, 0.5f, "Rate (free-run BPM, or 1/4-1/32 note subdivision of the incoming CLOCK's beat)", " BPM", 0, 200, 40);
 		configButton(DICE_TIME, "Randomize Rate+Octaves (TIME)");
-		configButton(TIME_NUDGE_DOWN, "Nudge Rate+Octaves down");
-		configButton(TIME_NUDGE_UP, "Nudge Rate+Octaves up");
 		configParam(ENTROPY_PARAM, -1.f, 1.f, 0.f, "Entropy (play direction)");
 		configParam(HARMONY_PARAM, 0.f, 1.f, 0.f, "Harmony (chord size when POLY is on: 0.25-0.5=2 notes, 0.5-0.75=3, 0.75+=4 -- Voice 2 only carries the first extra tone)");
 		configParam(CHAOS_PARAM, 0.f, 1.f, 0.f, "Chaos");
 		configButton(DICE_NAVY, "Randomize Entropy+Harmony+Chaos (NAVY)");
-		configButton(NAVY_NUDGE_DOWN, "Nudge Entropy+Harmony+Chaos down");
-		configButton(NAVY_NUDGE_UP, "Nudge Entropy+Harmony+Chaos up");
 		configParam(OCTAVES_PARAM, -3.f, 3.f, 0.f, "Octave shift")->snapEnabled = true;
 		configParam(ROOT_KEY_PARAM, 0.f, 11.f, 0.f, "Root key");
 		getParamQuantity(ROOT_KEY_PARAM)->snapEnabled = true;
@@ -154,8 +139,6 @@ struct SpacesCommand : Module {
 		configParam(DENSITY_PARAM, 0.f, 1.f, 0.5f, "Density", "%", 0, 100);
 		configParam(SWING_PARAM, 0.f, 1.f, 0.f, "Swing", "%", 0, 100);
 
-		configParam(VOICE1_GATE_LEN_PARAM, 0.05f, 1.f, 0.95f, "Voice 1 gate length", "%", 0, 100);
-		configParam(VOICE2_GATE_LEN_PARAM, 0.05f, 1.f, 0.5f, "Voice 2 gate length", "%", 0, 100);
 
 		configInput(VOCT_INPUT, "1V/oct pitch (poly, held notes)");
 		configInput(GATE_INPUT, "Gate (poly, held notes)");
@@ -225,34 +208,6 @@ struct SpacesCommand : Module {
 		params[CHAOS_PARAM].setValue(s.chaos);
 	}
 
-	// Nudge functions: step the SAME parameter cluster its paired dice
-	// button randomizes, by one small fixed increment, clamped to range.
-	static float nudgeClamp(float v, float delta, float lo, float hi) {
-		return clamp(v + delta, lo, hi);
-	}
-
-	void nudgeMelo(float dir) {
-		float step = 0.1f * dir;
-		for (int i = 0; i < 8; i++) {
-			float v = nudgeClamp(params[FADER_PARAM + i].getValue(), step, 0.f, 1.f);
-			params[FADER_PARAM + i].setValue(v);
-		}
-	}
-	void nudgeArti(float dir) {
-		float step = 0.1f * dir;
-		params[REST_PARAM].setValue(nudgeClamp(params[REST_PARAM].getValue(), step, 0.f, 1.f));
-		params[LEGATO_PARAM].setValue(nudgeClamp(params[LEGATO_PARAM].getValue(), step, 0.f, 1.f));
-	}
-	void nudgeTime(float dir) {
-		params[RATE_PARAM].setValue(nudgeClamp(params[RATE_PARAM].getValue(), 0.1f * dir, 0.f, 1.f));
-		params[OCTAVES_PARAM].setValue(nudgeClamp(params[OCTAVES_PARAM].getValue(), 1.f * dir, -3.f, 3.f));
-	}
-	void nudgeNavy(float dir) {
-		params[ENTROPY_PARAM].setValue(nudgeClamp(params[ENTROPY_PARAM].getValue(), 0.15f * dir, -1.f, 1.f));
-		params[HARMONY_PARAM].setValue(nudgeClamp(params[HARMONY_PARAM].getValue(), 0.1f * dir, 0.f, 1.f));
-		params[CHAOS_PARAM].setValue(nudgeClamp(params[CHAOS_PARAM].getValue(), 0.1f * dir, 0.f, 1.f));
-	}
-
 	json_t* dataToJson() override {
 		json_t* rootJ = json_object();
 		json_object_set_new(rootJ, "latchOn", json_boolean(latchOnState));
@@ -298,14 +253,6 @@ struct SpacesCommand : Module {
 		if (diceArtiTrig.process(params[DICE_ARTI].getValue())) randomizeArti();
 		if (diceTimeTrig.process(params[DICE_TIME].getValue())) randomizeTime();
 		if (diceNavyTrig.process(params[DICE_NAVY].getValue())) randomizeNavy();
-		if (meloNudgeDownTrig.process(params[MELO_NUDGE_DOWN].getValue())) nudgeMelo(-1.f);
-		if (meloNudgeUpTrig.process(params[MELO_NUDGE_UP].getValue())) nudgeMelo(1.f);
-		if (artiNudgeDownTrig.process(params[ARTI_NUDGE_DOWN].getValue())) nudgeArti(-1.f);
-		if (artiNudgeUpTrig.process(params[ARTI_NUDGE_UP].getValue())) nudgeArti(1.f);
-		if (timeNudgeDownTrig.process(params[TIME_NUDGE_DOWN].getValue())) nudgeTime(-1.f);
-		if (timeNudgeUpTrig.process(params[TIME_NUDGE_UP].getValue())) nudgeTime(1.f);
-		if (navyNudgeDownTrig.process(params[NAVY_NUDGE_DOWN].getValue())) nudgeNavy(-1.f);
-		if (navyNudgeUpTrig.process(params[NAVY_NUDGE_UP].getValue())) nudgeNavy(1.f);
 
 		captureFocusedScene();
 
@@ -551,8 +498,8 @@ struct SpacesCommand : Module {
 				// which voice fires, only how audio got mixed, back when
 				// this module had audio). Each voice's own GATE LEN knob
 				// decides how long ITS gate output stays high.
-				voice1GateCountdown = std::max(1, (int)std::round(lastStepIntervalSamples * params[VOICE1_GATE_LEN_PARAM].getValue()));
-				voice2GateCountdown = std::max(1, (int)std::round(lastStepIntervalSamples * params[VOICE2_GATE_LEN_PARAM].getValue()));
+				voice1GateCountdown = std::max(1, (int)std::round(lastStepIntervalSamples * kGateLenFraction));
+				voice2GateCountdown = std::max(1, (int)std::round(lastStepIntervalSamples * kGateLenFraction));
 			}
 			for (int i = 0; i < 8; i++)
 				lights[STEP_LIGHTS + i].setBrightness(i == localStep ? 1.f : 0.f);
@@ -879,6 +826,8 @@ struct VFaderHandle : ParamWidget {
 	float centerX = 0.f;
 	float* displayValuePtr = nullptr;  // live Scene A/B blend, computed every frame by the module
 	bool dragging = false;  // whether THIS fader is currently being dragged
+	Module* mod = nullptr;
+	int lightId = -1;  // step-position LED, embedded in the cap itself (see draw())
 
 	VFaderHandle() {
 		box.size = mm2px(Vec(9.5, 3.5));  // height halved per explicit request
@@ -931,21 +880,58 @@ struct VFaderHandle : ParamWidget {
 	}
 
 	void draw(const DrawArgs& args) override {
-		// black body, translucent glowing LED, per explicit request
-		NVGcolor body = nvgRGBA(0x0A, 0x0A, 0x0C, 255);
+		// Body: subtle top-to-bottom gradient for some dimensionality
+		// instead of flat black, plus a thin grip-ridge highlight -- a
+		// small aesthetic pass alongside embedding the LED below.
+		NVGpaint bodyGrad = nvgLinearGradient(args.vg, 0, 0, 0, box.size.y,
+			nvgRGBA(0x2C, 0x2C, 0x2E, 255), nvgRGBA(0x0A, 0x0A, 0x0C, 255));
 		nvgBeginPath(args.vg);
 		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 1.2f);
-		nvgFillColor(args.vg, body);
+		nvgFillPaint(args.vg, bodyGrad);
 		nvgFill(args.vg);
 		nvgStrokeColor(args.vg, nvgRGB(0x2A, 0x2A, 0x2A));
 		nvgStrokeWidth(args.vg, 0.9f);
 		nvgStroke(args.vg);
-		float cx = box.size.x/2, cy = box.size.y/2;
-		NVGpaint glow = nvgRadialGradient(args.vg, cx, cy, 0.3f, 3.0f, nvgRGBA(0xFF, 0xB0, 0x4A, 130), nvgRGBA(0xFF, 0xB0, 0x4A, 0));
+
+		float cx = box.size.x / 2.f;
+		float ledY = box.size.y * 0.32f;
+
+		// Grip-ridge: thin highlight line, purely cosmetic.
 		nvgBeginPath(args.vg);
-		nvgRect(args.vg, cx-4, cy-2.5f, 8, 5);
-		nvgFillPaint(args.vg, glow);
+		nvgMoveTo(args.vg, 1.2f, box.size.y * 0.62f);
+		nvgLineTo(args.vg, box.size.x - 1.2f, box.size.y * 0.62f);
+		nvgStrokeColor(args.vg, nvgRGBA(255, 255, 255, 22));
+		nvgStrokeWidth(args.vg, 0.6f);
+		nvgStroke(args.vg);
+
+		// Step-position LED, embedded directly in the cap -- replaces the
+		// old separate row of red lights above the faders. Lit red when
+		// this fader is the currently-playing step, a dim unlit dot
+		// otherwise (so the LED window is always visible, on or off).
+		float brightness = (mod && lightId >= 0) ? mod->lights[lightId].getBrightness() : 0.f;
+		NVGcolor ledColor = nvgRGBA(
+			(unsigned char)(0x40 + (0xFF - 0x40) * brightness),
+			(unsigned char)(0x12 + (0x28 - 0x12) * brightness),
+			(unsigned char)(0x12 + (0x28 - 0x12) * brightness),
+			255);
+		nvgBeginPath(args.vg);
+		nvgCircle(args.vg, cx, ledY, 1.15f);
+		nvgFillColor(args.vg, ledColor);
 		nvgFill(args.vg);
+		if (brightness > 0.05f) {
+			// Clip the glow to the cap's own rounded-rect body -- the cap is
+			// only 3.5mm tall, so an unclipped glow would bleed past its
+			// edges onto the track behind it.
+			nvgSave(args.vg);
+			nvgIntersectScissor(args.vg, 0.f, 0.f, box.size.x, box.size.y);
+			NVGpaint glow = nvgRadialGradient(args.vg, cx, ledY, 0.3f, 2.0f,
+				nvgRGBA(0xFF, 0x30, 0x30, (unsigned char)(160 * brightness)), nvgRGBA(0xFF, 0x30, 0x30, 0));
+			nvgBeginPath(args.vg);
+			nvgRect(args.vg, cx - 3.f, ledY - 3.f, 6.f, 6.f);
+			nvgFillPaint(args.vg, glow);
+			nvgFill(args.vg);
+			nvgRestore(args.vg);
+		}
 	}
 };
 
@@ -963,9 +949,6 @@ struct SpacesCommandWidget : ModuleWidget {
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(134.57, 27.54)), module, SpacesCommand::VOICE1_GATE_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(157.6, 27.54)), module, SpacesCommand::VOICE2_PITCH_OUTPUT));
 		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(180.64, 27.54)), module, SpacesCommand::VOICE2_GATE_OUTPUT));
-		// Per-voice GATE LEN knobs, sitting directly above their GATE jack
-		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(134.57, 18.67)), module, SpacesCommand::VOICE1_GATE_LEN_PARAM));
-		addParam(createParamCentered<SmallKnobVoice>(mm2px(Vec(180.64, 18.67)), module, SpacesCommand::VOICE2_GATE_LEN_PARAM));
 
 		// FEEL: macro knobs -- custom MorphKnob for live scene-blend display, matching original VST
 		{
@@ -1078,153 +1061,107 @@ struct SpacesCommandWidget : ModuleWidget {
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(166.94, 73.38)), module, SpacesCommand::DENSITY_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(181.04, 73.38)), module, SpacesCommand::SWING_PARAM));
 
-		// PATTERN: custom vertical faders (live scene-morph display) + step lights + DICE box
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(23.0, 92.08)), module, SpacesCommand::STEP_LIGHTS + 0));
+		// PATTERN: custom vertical faders (live scene-morph display), each
+		// with its step-position LED embedded directly in the cap (see
+		// VFaderHandle::draw) instead of a separate row of lights above.
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(23.0, 105.88)), module, SpacesCommand::FADER_PARAM + 0);
-			fader->trackY0Px = mm2px(Vec(0, 93.88)).y;
-			fader->trackY1Px = mm2px(Vec(0, 117.88)).y;
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(23.0, 102.24)), module, SpacesCommand::FADER_PARAM + 0);
+			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
+			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
 			fader->centerX = mm2px(Vec(23.0, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[0];
+			fader->mod = module;
+			fader->lightId = SpacesCommand::STEP_LIGHTS + 0;
 			addParam(fader);
 		}
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(36.72, 92.08)), module, SpacesCommand::STEP_LIGHTS + 1));
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(36.72, 105.88)), module, SpacesCommand::FADER_PARAM + 1);
-			fader->trackY0Px = mm2px(Vec(0, 93.88)).y;
-			fader->trackY1Px = mm2px(Vec(0, 117.88)).y;
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(36.72, 102.24)), module, SpacesCommand::FADER_PARAM + 1);
+			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
+			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
 			fader->centerX = mm2px(Vec(36.72, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[1];
+			fader->mod = module;
+			fader->lightId = SpacesCommand::STEP_LIGHTS + 1;
 			addParam(fader);
 		}
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(50.44, 92.08)), module, SpacesCommand::STEP_LIGHTS + 2));
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(50.44, 105.88)), module, SpacesCommand::FADER_PARAM + 2);
-			fader->trackY0Px = mm2px(Vec(0, 93.88)).y;
-			fader->trackY1Px = mm2px(Vec(0, 117.88)).y;
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(50.44, 102.24)), module, SpacesCommand::FADER_PARAM + 2);
+			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
+			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
 			fader->centerX = mm2px(Vec(50.44, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[2];
+			fader->mod = module;
+			fader->lightId = SpacesCommand::STEP_LIGHTS + 2;
 			addParam(fader);
 		}
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(64.15, 92.08)), module, SpacesCommand::STEP_LIGHTS + 3));
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(64.15, 105.88)), module, SpacesCommand::FADER_PARAM + 3);
-			fader->trackY0Px = mm2px(Vec(0, 93.88)).y;
-			fader->trackY1Px = mm2px(Vec(0, 117.88)).y;
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(64.15, 102.24)), module, SpacesCommand::FADER_PARAM + 3);
+			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
+			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
 			fader->centerX = mm2px(Vec(64.15, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[3];
+			fader->mod = module;
+			fader->lightId = SpacesCommand::STEP_LIGHTS + 3;
 			addParam(fader);
 		}
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(77.87, 92.08)), module, SpacesCommand::STEP_LIGHTS + 4));
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(77.87, 105.88)), module, SpacesCommand::FADER_PARAM + 4);
-			fader->trackY0Px = mm2px(Vec(0, 93.88)).y;
-			fader->trackY1Px = mm2px(Vec(0, 117.88)).y;
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(77.87, 102.24)), module, SpacesCommand::FADER_PARAM + 4);
+			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
+			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
 			fader->centerX = mm2px(Vec(77.87, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[4];
+			fader->mod = module;
+			fader->lightId = SpacesCommand::STEP_LIGHTS + 4;
 			addParam(fader);
 		}
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(91.59, 92.08)), module, SpacesCommand::STEP_LIGHTS + 5));
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(91.59, 105.88)), module, SpacesCommand::FADER_PARAM + 5);
-			fader->trackY0Px = mm2px(Vec(0, 93.88)).y;
-			fader->trackY1Px = mm2px(Vec(0, 117.88)).y;
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(91.59, 102.24)), module, SpacesCommand::FADER_PARAM + 5);
+			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
+			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
 			fader->centerX = mm2px(Vec(91.59, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[5];
+			fader->mod = module;
+			fader->lightId = SpacesCommand::STEP_LIGHTS + 5;
 			addParam(fader);
 		}
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(105.31, 92.08)), module, SpacesCommand::STEP_LIGHTS + 6));
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(105.31, 105.88)), module, SpacesCommand::FADER_PARAM + 6);
-			fader->trackY0Px = mm2px(Vec(0, 93.88)).y;
-			fader->trackY1Px = mm2px(Vec(0, 117.88)).y;
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(105.31, 102.24)), module, SpacesCommand::FADER_PARAM + 6);
+			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
+			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
 			fader->centerX = mm2px(Vec(105.31, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[6];
+			fader->mod = module;
+			fader->lightId = SpacesCommand::STEP_LIGHTS + 6;
 			addParam(fader);
 		}
-		addChild(createLightCentered<SmallLight<RedLight>>(mm2px(Vec(119.03, 92.08)), module, SpacesCommand::STEP_LIGHTS + 7));
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(119.03, 105.88)), module, SpacesCommand::FADER_PARAM + 7);
-			fader->trackY0Px = mm2px(Vec(0, 93.88)).y;
-			fader->trackY1Px = mm2px(Vec(0, 117.88)).y;
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(119.03, 102.24)), module, SpacesCommand::FADER_PARAM + 7);
+			fader->trackY0Px = mm2px(Vec(0, 88.74)).y;
+			fader->trackY1Px = mm2px(Vec(0, 115.74)).y;
 			fader->centerX = mm2px(Vec(119.03, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[7];
+			fader->mod = module;
+			fader->lightId = SpacesCommand::STEP_LIGHTS + 7;
 			addParam(fader);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(140.53, 103.78)), module, SpacesCommand::MELO_PARAM);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(140.53, 103.84)), module, SpacesCommand::MELO_PARAM);
 			btn->unlitColor = nvgRGB(0x6A, 0x42, 0x08);  // amber family -- matches the 8 pattern faders it randomizes
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(136.43, 112.88)), module, SpacesCommand::MELO_NUDGE_DOWN);
-			btn->box.size = mm2px(Vec(3.6, 3.6));
-			btn->box.pos = mm2px(Vec(136.43, 112.88)).minus(btn->box.size.div(2));
-			btn->letter = "-";
-			addParam(btn);
-		}
-		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(144.63, 112.88)), module, SpacesCommand::MELO_NUDGE_UP);
-			btn->box.size = mm2px(Vec(3.6, 3.6));
-			btn->box.pos = mm2px(Vec(144.63, 112.88)).minus(btn->box.size.div(2));
-			btn->letter = "+";
-			addParam(btn);
-		}
-		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(153.53, 103.78)), module, SpacesCommand::DICE_ARTI);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(153.53, 103.84)), module, SpacesCommand::DICE_ARTI);
 			btn->unlitColor = nvgRGB(0x5A, 0x1E, 0x1E);  // maroon family -- matches REST+LEGATO knob rings
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(149.43, 112.88)), module, SpacesCommand::ARTI_NUDGE_DOWN);
-			btn->box.size = mm2px(Vec(3.6, 3.6));
-			btn->box.pos = mm2px(Vec(149.43, 112.88)).minus(btn->box.size.div(2));
-			btn->letter = "-";
-			addParam(btn);
-		}
-		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(157.63, 112.88)), module, SpacesCommand::ARTI_NUDGE_UP);
-			btn->box.size = mm2px(Vec(3.6, 3.6));
-			btn->box.pos = mm2px(Vec(157.63, 112.88)).minus(btn->box.size.div(2));
-			btn->letter = "+";
-			addParam(btn);
-		}
-		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(166.53, 103.78)), module, SpacesCommand::DICE_TIME);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(166.53, 103.84)), module, SpacesCommand::DICE_TIME);
 			btn->unlitColor = nvgRGB(0x5A, 0x40, 0x18);  // brass/ochre family -- matches RATE+OCTAVES knob rings
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(162.43, 112.88)), module, SpacesCommand::TIME_NUDGE_DOWN);
-			btn->box.size = mm2px(Vec(3.6, 3.6));
-			btn->box.pos = mm2px(Vec(162.43, 112.88)).minus(btn->box.size.div(2));
-			btn->letter = "-";
-			addParam(btn);
-		}
-		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(170.63, 112.88)), module, SpacesCommand::TIME_NUDGE_UP);
-			btn->box.size = mm2px(Vec(3.6, 3.6));
-			btn->box.pos = mm2px(Vec(170.63, 112.88)).minus(btn->box.size.div(2));
-			btn->letter = "+";
-			addParam(btn);
-		}
-		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(179.53, 103.78)), module, SpacesCommand::DICE_NAVY);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(179.53, 103.84)), module, SpacesCommand::DICE_NAVY);
 			btn->unlitColor = nvgRGB(0x1E, 0x30, 0x48);  // navy family -- matches ENTROPY+HARMONY+CHAOS knob rings
-			addParam(btn);
-		}
-		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(175.43, 112.88)), module, SpacesCommand::NAVY_NUDGE_DOWN);
-			btn->box.size = mm2px(Vec(3.6, 3.6));
-			btn->box.pos = mm2px(Vec(175.43, 112.88)).minus(btn->box.size.div(2));
-			btn->letter = "-";
-			addParam(btn);
-		}
-		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(183.63, 112.88)), module, SpacesCommand::NAVY_NUDGE_UP);
-			btn->box.size = mm2px(Vec(3.6, 3.6));
-			btn->box.pos = mm2px(Vec(183.63, 112.88)).minus(btn->box.size.div(2));
-			btn->letter = "+";
 			addParam(btn);
 		}
 
