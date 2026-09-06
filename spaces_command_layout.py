@@ -180,10 +180,10 @@ def grid_x(name, n, i, pad=6.0):
 iox, ioy, iow, ioh, _ = sections["io"]
 port_y = centered_y(ioy, ioh, R["port"])
 label_y_io = port_y + R["port"] + LABEL_GAP + LABEL_H
-io_names = ["CLOCK","RESET","V/OCT","GATE","VEL","V1 PITCH","V1 GATE","V2 PITCH","V2 GATE"]
+io_names = ["CLOCK","RESET","V/OCT","GATE","VEL","A PITCH","A GATE","A VEL","B PITCH","B GATE","B VEL"]
 io_params = ["CLOCK_INPUT","RESET_INPUT","VOCT_INPUT","GATE_INPUT","VELOCITY_INPUT",
-             "VOICE1_PITCH_OUTPUT","VOICE1_GATE_OUTPUT","VOICE2_PITCH_OUTPUT","VOICE2_GATE_OUTPUT"]
-io_dirs = ["in","in","in","in","in","out","out","out","out"]
+             "A_PITCH_OUTPUT","A_GATE_OUTPUT","A_VEL_OUTPUT","B_PITCH_OUTPUT","B_GATE_OUTPUT","B_VEL_OUTPUT"]
+io_dirs = ["in","in","in","in","in","out","out","out","out","out","out"]
 # Inputs get a navy ring (matches the mode-toggle accent), outputs get a
 # brass ring (matches TIME/RATE) -- differentiates direction at a glance
 # without introducing a new color to the palette.
@@ -193,7 +193,11 @@ pad_io = R["port"] + 2.0
 usable_io = iow - 2*pad_io
 for i, (nm, pnm, dr) in enumerate(zip(io_names, io_params, io_dirs)):
     cx = iox + pad_io + (usable_io / (n_io-1)) * i
-    add(f'<circle cx="{cx}" cy="{port_y}" r="{R["port"]+1.6}" fill="none" stroke="{io_ring_color[dr]}" stroke-width="0.7" opacity="0.55"/>')
+    # Ring hugs the jack's own outer edge now instead of floating outward
+    # (was +1.6mm offset / 0.7mm stroke, which read as a faint halo) --
+    # near-zero gap, roughly 2.5x the stroke width, for a bolder ring
+    # that visibly belongs to the jack rather than hovering near it.
+    add(f'<circle cx="{cx}" cy="{port_y}" r="{R["port"]+0.3}" fill="none" stroke="{io_ring_color[dr]}" stroke-width="1.8" opacity="0.55"/>')
     micro(nm, cx, label_y_io, size=1.5)
     layout["io"].append({"x": round(cx,2), "y": round(port_y,2), "param": pnm, "dir": dr})
 
@@ -221,9 +225,9 @@ for i, (nm, pnm) in enumerate(zip(macro_names, macro_params)):
 ctx0, cty0, ctw0, cth0, _ = sections["controls"]
 ctrl_y = centered_y(cty0, cth0, R["bezel"])
 label_y_ctrl = ctrl_y + R["bezel"] + LABEL_GAP + LABEL_H
-mode_names = ["LATCH", "ARP-SEQ", "POLY", "FREEZE", "ROUTING"]
-mode_param_map = {"LATCH":"LATCH_PARAM","ARP-SEQ":"ARPSEQ_PARAM","POLY":"POLY_PARAM","FREEZE":"FREEZE_PARAM","ROUTING":"ROUTING_PARAM"}
-mode_light_map = {"LATCH":"LATCH_LIGHT","ARP-SEQ":"ARPSEQ_LIGHT","POLY":"POLY_LIGHT","FREEZE":"FREEZE_LIGHT","ROUTING":"ROUTING_LIGHT"}
+mode_names = ["LATCH", "ARP-SEQ", "STRUM", "FREEZE", "ROUTING"]
+mode_param_map = {"LATCH":"LATCH_PARAM","ARP-SEQ":"ARPSEQ_PARAM","STRUM":"STRUM_PARAM","FREEZE":"FREEZE_PARAM","ROUTING":"ROUTING_PARAM"}
+mode_light_map = {"LATCH":"LATCH_LIGHT","ARP-SEQ":"ARPSEQ_LIGHT","STRUM":"STRUM_LIGHT","FREEZE":"FREEZE_LIGHT","ROUTING":"ROUTING_LIGHT"}
 for i, nm in enumerate(mode_names):
     cx = grid_x("controls", 5, i, pad=7.0)
     micro(nm, cx, label_y_ctrl, size=1.4)
@@ -267,7 +271,7 @@ sx, sy, sw, sh, _ = sections["steps"]
 fader_y = centered_y(sy, sh, R["fader_half"])
 label_y = fader_y + R["fader_half"] + LABEL_GAP + LABEL_H
 
-faders_w = sw * (2.0/3.0)
+faders_w = 100.0  # tightened from sw*(2/3)=116.03 to reclaim room for a 5th DICE-cluster button; pitch drops from ~13.72mm to ~11.43mm, still comfortable clearance against the now-8mm-wide fader caps for mouse-driven interaction (see design notes -- this and the cap-width trim are two independent changes, not one lever doing both jobs)
 fader_pad = 10.0
 for i in range(8):
     step_x = fader_pad + (faders_w - 2*fader_pad) / 7 * i
@@ -284,8 +288,9 @@ cluster_w = sw - faders_w - 4.0
 
 R["bezel_big"] = 5.5   # dice buttons
 
-rand_names = ["MELO", "ARTI", "TIME", "NAVY"]
-rand_params = ["MELO_PARAM", "DICE_ARTI", "DICE_TIME", "DICE_NAVY"]
+rand_names = ["MELO", "ARTI", "TIME", "NAVY", "OCT"]
+rand_params = ["MELO_PARAM", "DICE_ARTI", "DICE_TIME", "DICE_NAVY", "OCT_BIAS_SPLIT"]
+n_dice = len(rand_names)
 
 # ---- vertical stack, computed top-down, asserted to fit within sh ----
 # Nudge (-/+) buttons removed entirely (no good use found for them, per
@@ -302,10 +307,13 @@ stack_h = title_h + gap1 + dice_d + gap2 + label_h_dice
 box_h = stack_h + 2*box_pad
 assert box_h <= sh, f"DICE box overflows PATTERN row: needs {box_h:.1f}mm, row has {sh:.1f}mm"
 
-# ---- horizontal: 4 equal columns, computed to fit within cluster_w ----
+# ---- horizontal: 5 equal columns, computed to fit within cluster_w. The
+# 5th column ("OCT") is one column-slot wide but split into two adjacent
+# SquareButtons in the widget code (left=bias down, right=bias up) --
+# matching keyboard octave-switch convention, not a circular dice bezel.
 col_w = dice_d + 1.0
 col_gap = 1.0
-row_w = col_w*4 + col_gap*3
+row_w = col_w*n_dice + col_gap*(n_dice-1)
 box_w = row_w + 2*box_pad
 assert box_w <= cluster_w, f"DICE box overflows horizontally: needs {box_w:.1f}mm, zone has {cluster_w:.1f}mm"
 
@@ -313,7 +321,7 @@ box_x0 = cluster_x0 + (cluster_w - box_w)/2
 box_y0 = sy + (sh - box_h)/2   # center the whole DICE box within the PATTERN row, like every other row
 
 add(f'<rect x="{box_x0}" y="{box_y0}" width="{box_w}" height="{box_h}" rx="1.5" fill="{SLOT}" opacity="0.6" stroke="{BORDER}" stroke-width="0.3" stroke-opacity="0.6"/>')
-p, _ = txt("DICE", box_x0 + box_w/2, box_y0 + title_h - 1.0, 2.2, TEXT_DIM, anchor="middle")
+p, _ = txt("RANDOM", box_x0 + box_w/2, box_y0 + title_h - 1.0, 2.2, TEXT_DIM, anchor="middle")
 add(p)
 
 dice_y = box_y0 + title_h + gap1 + R["bezel_big"]

@@ -7,43 +7,43 @@
       "track_y1": 115.74
     },
     {
-      "x": 36.72,
+      "x": 34.43,
       "fader_y": 102.24,
       "track_y0": 88.74,
       "track_y1": 115.74
     },
     {
-      "x": 50.44,
+      "x": 45.86,
       "fader_y": 102.24,
       "track_y0": 88.74,
       "track_y1": 115.74
     },
     {
-      "x": 64.15,
+      "x": 57.29,
       "fader_y": 102.24,
       "track_y0": 88.74,
       "track_y1": 115.74
     },
     {
-      "x": 77.87,
+      "x": 68.71,
       "fader_y": 102.24,
       "track_y0": 88.74,
       "track_y1": 115.74
     },
     {
-      "x": 91.59,
+      "x": 80.14,
       "fader_y": 102.24,
       "track_y0": 88.74,
       "track_y1": 115.74
     },
     {
-      "x": 105.31,
+      "x": 91.57,
       "fader_y": 102.24,
       "track_y0": 88.74,
       "track_y1": 115.74
     },
     {
-      "x": 119.03,
+      "x": 103.0,
       "fader_y": 102.24,
       "track_y0": 88.74,
       "track_y1": 115.74
@@ -74,9 +74,9 @@
     {
       "x": 159.08,
       "y": 45.02,
-      "param": "POLY_PARAM",
-      "light": "POLY_LIGHT",
-      "name": "POLY"
+      "param": "STRUM_PARAM",
+      "light": "STRUM_LIGHT",
+      "name": "STRUM"
     },
     {
       "x": 169.56,
@@ -164,78 +164,96 @@
       "dir": "in"
     },
     {
-      "x": 39.56,
+      "x": 35.53,
       "y": 19.2,
       "param": "RESET_INPUT",
       "dir": "in"
     },
     {
-      "x": 59.71,
+      "x": 51.65,
       "y": 19.2,
       "param": "VOCT_INPUT",
       "dir": "in"
     },
     {
-      "x": 79.87,
+      "x": 67.77,
       "y": 19.2,
       "param": "GATE_INPUT",
       "dir": "in"
     },
     {
-      "x": 100.02,
+      "x": 83.9,
       "y": 19.2,
       "param": "VELOCITY_INPUT",
       "dir": "in"
     },
     {
-      "x": 120.17,
+      "x": 100.02,
       "y": 19.2,
-      "param": "VOICE1_PITCH_OUTPUT",
+      "param": "A_PITCH_OUTPUT",
       "dir": "out"
     },
     {
-      "x": 140.33,
+      "x": 116.14,
       "y": 19.2,
-      "param": "VOICE1_GATE_OUTPUT",
+      "param": "A_GATE_OUTPUT",
       "dir": "out"
     },
     {
-      "x": 160.48,
+      "x": 132.27,
       "y": 19.2,
-      "param": "VOICE2_PITCH_OUTPUT",
+      "param": "A_VEL_OUTPUT",
+      "dir": "out"
+    },
+    {
+      "x": 148.39,
+      "y": 19.2,
+      "param": "B_PITCH_OUTPUT",
+      "dir": "out"
+    },
+    {
+      "x": 164.51,
+      "y": 19.2,
+      "param": "B_GATE_OUTPUT",
       "dir": "out"
     },
     {
       "x": 180.64,
       "y": 19.2,
-      "param": "VOICE2_GATE_OUTPUT",
+      "param": "B_VEL_OUTPUT",
       "dir": "out"
     }
   ],
   "randomize": [
     {
-      "x": 140.53,
+      "x": 126.02,
       "y": 103.84,
       "param": "MELO_PARAM",
       "name": "MELO"
     },
     {
-      "x": 153.53,
+      "x": 139.02,
       "y": 103.84,
       "param": "DICE_ARTI",
       "name": "ARTI"
     },
     {
-      "x": 166.53,
+      "x": 152.02,
       "y": 103.84,
       "param": "DICE_TIME",
       "name": "TIME"
     },
     {
-      "x": 179.53,
+      "x": 165.02,
       "y": 103.84,
       "param": "DICE_NAVY",
       "name": "NAVY"
+    },
+    {
+      "x": 178.02,
+      "y": 103.84,
+      "param": "OCT_BIAS_SPLIT",
+      "name": "OCT"
     }
   ]
 }
