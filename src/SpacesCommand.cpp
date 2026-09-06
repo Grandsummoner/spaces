@@ -25,17 +25,18 @@ struct SpacesCommand : Module {
 		ENUMS(FADER_PARAM, 8),
 		MELO_PARAM,
 		SCENE_A_PARAM, SCENE_B_PARAM, MORPH_PARAM,
-		LATCH_PARAM, ARPSEQ_PARAM, POLY_PARAM, FREEZE_PARAM, ROUTING_PARAM,
+		LATCH_PARAM, ARPSEQ_PARAM, STRUM_PARAM, FREEZE_PARAM, ROUTING_PARAM,
 		REST_PARAM, DICE_ARTI, LEGATO_PARAM, RATE_PARAM, DICE_TIME,
 		ENTROPY_PARAM, HARMONY_PARAM, CHAOS_PARAM, DICE_NAVY, OCTAVES_PARAM,
+		OCT_BIAS_DOWN_PARAM, OCT_BIAS_UP_PARAM,
 		ROOT_KEY_PARAM, SCALE_TYPE_PARAM, DENSITY_PARAM, SWING_PARAM,
 		PARAMS_LEN
 	};
 	enum InputId { VOCT_INPUT, GATE_INPUT, VELOCITY_INPUT, CLOCK_INPUT, RESET_INPUT, INPUTS_LEN };
-	enum OutputId { VOICE1_PITCH_OUTPUT, VOICE1_GATE_OUTPUT, VOICE2_PITCH_OUTPUT, VOICE2_GATE_OUTPUT, OUTPUTS_LEN };
+	enum OutputId { A_PITCH_OUTPUT, A_GATE_OUTPUT, A_VEL_OUTPUT, B_PITCH_OUTPUT, B_GATE_OUTPUT, B_VEL_OUTPUT, OUTPUTS_LEN };
 	enum LightId {
 		ENUMS(STEP_LIGHTS, 8), SCENE_A_LIGHT, SCENE_B_LIGHT,
-		LATCH_LIGHT, ARPSEQ_LIGHT, POLY_LIGHT, FREEZE_LIGHT, ROUTING_LIGHT,
+		LATCH_LIGHT, ARPSEQ_LIGHT, STRUM_LIGHT, FREEZE_LIGHT, ROUTING_LIGHT,
 		LIGHTS_LEN
 	};
 
@@ -66,18 +67,25 @@ struct SpacesCommand : Module {
 	double samplesSinceLastClockPulse = 0.0;
 	double lastClockPulseIntervalSamples = 0.0;
 	int clockSubStepIndex = 0;
-	// Per-voice gate-output countdown: samples remaining with the gate
-	// held high. GATE LEN is no longer a per-voice knob (removed to reduce
-	// panel clutter -- finer per-voice gate control belongs on a future
-	// downstream module, not stacked onto Command); both voices now use a
+	// Per-stream gate-output countdown: samples remaining with the gate
+	// held high. GATE LEN is no longer a per-stream knob (removed to reduce
+	// panel clutter -- finer per-stream gate control belongs on a future
+	// downstream module, not stacked onto Command); both streams now use a
 	// fixed 95% of the step interval, matching the original single-voice
 	// default exactly.
 	static constexpr float kGateLenFraction = 0.95f;
-	int voice1GateCountdown = -1;  // -1 = gate currently low
-	int voice2GateCountdown = -1;
+	int aGateCountdown = -1;  // -1 = gate currently low
+	int bGateCountdown = -1;
+	int aGateTotalSamples = 1, bGateTotalSamples = 1;  // full gate length, for STRUM sub-timing
 
 	std::vector<int> heldNotes, latchedNotes;
-	float lastVoice1PitchVolt = 0.f, lastVoice2PitchVolt = 0.f;
+	std::vector<float> heldVelocities, latchedVelocities;  // 0-1, parallel to heldNotes/latchedNotes by index
+	float lastAPitchVolt = 0.f, lastBPitchVolt = 0.f;
+	float lastAVelVolt = 0.f, lastBVelVolt = 0.f;
+	// STRUM: chord tones for the currently-sounding note on each stream,
+	// rolled one at a time across the gate window instead of sounding
+	// together (this module has no polyphonic wires -- see design notes).
+	std::vector<int> aStrumPitches, bStrumPitches;
 	// FREEZE snapshot state: captured once on FREEZE's rising edge,
 	// matching the original exactly -- while engaged, the engine reads
 	// these frozen values instead of live knobs/held notes, so playback
@@ -86,11 +94,18 @@ struct SpacesCommand : Module {
 	// display values (displayRest etc.) are unaffected either way, same
 	// as the original's UI.
 	bool freezeWasOn = false;
-	float frozenRest = 0.f, frozenHarmony = 0.f, frozenChaos = 0.f, frozenEntropy = 0.f;
-	float frozenRate01 = 0.5f;
-	int frozenOctaveShift = 0;
-	float frozenFaders[8] = {};
+	// Whole-scene snapshots (plus the MORPH position itself) rather than
+	// individual blended scalars -- needed so Split mode's independent
+	// per-scene values are ALSO protected by FREEZE, not just Blend
+	// mode's crossfaded ones. Everything effective is recomputed from
+	// these frozen copies + frozenMorph while engaged, which reproduces
+	// the old single-scalar-snapshot behavior exactly for Blend mode
+	// (crossfade of two frozen things at a frozen position == a frozen
+	// crossfade result) while also covering Split mode for free.
+	SceneState frozenSceneA, frozenSceneB;
+	float frozenMorph = 0.f;
 	std::vector<int> frozenHeldNotes, frozenLatchedNotes;
+	std::vector<float> frozenHeldVelocities, frozenLatchedVelocities;
 	dsp::SchmittTrigger sceneATrig, sceneBTrig, clockTrig, resetTrig;
 	dsp::SchmittTrigger diceArtiTrig, diceTimeTrig, diceNavyTrig, meloTrig;
 
@@ -98,16 +113,18 @@ struct SpacesCommand : Module {
 	// must TOGGLE persisted state -- same bug/fix as the wave buttons.
 	// Previously read directly from the momentary param, so they only
 	// registered "on" while physically held, never actually latched.
-	bool latchOnState = false, arpSeqOnState = false, polyOnState = false;
+	bool latchOnState = false, arpSeqOnState = false, strumOnState = false;
 	bool freezeOnState = false;
-	// ROUTING is a stub: it used to select how Voice1/Voice2's two audio
-	// streams got mixed (Layered/Split/External-only). With no audio
-	// engine on this module anymore, cycling it and lighting ROUTING_LIGHT
-	// still works and routingState is still saved, but nothing in this
-	// module's own process() reads it -- it's kept for a future connector/
-	// voice module to read and interpret.
-	int routingState = 0;  // 0=Layered(Voice1), 1=Split A.B, 2=External Out Only
-	dsp::SchmittTrigger latchTrig, arpSeqTrig, polyTrig, freezeTrig, routingTrig;
+	// ROUTING: BLEND (0) -- A Out and B Out carry the same single morphed
+	// stream, as they always have. SPLIT (1) -- A Out plays Scene A's own
+	// pattern and B Out plays Scene B's own pattern, genuinely
+	// independently (see the split-bucket params below), with the
+	// crossfader controlling each stream's presence (fades to true
+	// silence at its own extreme, folded into DENSITY rather than a
+	// separate roll -- see process()).
+	int routingState = 0;  // 0=Blend, 1=Split
+	dsp::SchmittTrigger latchTrig, arpSeqTrig, strumTrig, freezeTrig, routingTrig;
+	dsp::SchmittTrigger octBiasDownTrig, octBiasUpTrig;
 
 	SpacesCommand() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -119,19 +136,21 @@ struct SpacesCommand : Module {
 		configParam(MORPH_PARAM, 0.f, 1.f, 0.f, "Scene morph", "%", 0, 100);
 		configSwitch(LATCH_PARAM, 0.f, 1.f, 0.f, "Latch (holds the last note fed into V/OCT+GATE after release)", {"Off", "On"});
 		configSwitch(ARPSEQ_PARAM, 0.f, 1.f, 0.f, "Arp (cycles held/latched notes) / Seq (fixed root+scale pattern, runs on its own)", {"Arp", "Seq"});
-		configSwitch(POLY_PARAM, 0.f, 1.f, 0.f, "Poly (splits a HARMONY chord tone onto Voice 2)", {"Off", "On"});
+		configSwitch(STRUM_PARAM, 0.f, 1.f, 0.f, "Strum (rolls a HARMONY chord's tones one at a time within the step's gate window, instead of only the root)", {"Off", "On"});
 		configSwitch(FREEZE_PARAM, 0.f, 1.f, 0.f, "Freeze (snapshots the pattern and keeps playing it regardless of knob/note changes)", {"Off", "On"});
-		configSwitch(ROUTING_PARAM, 0.f, 2.f, 0.f, "Voice routing", {"Layered (Voice 1)", "Split A\u00b7B", "External Out Only"});
+		configSwitch(ROUTING_PARAM, 0.f, 1.f, 0.f, "Routing", {"Blend", "Split"});
 		configParam(REST_PARAM, 0.f, 1.f, 0.1f, "Rest probability", "%", 0, 100);
 		configButton(DICE_ARTI, "Randomize Rest+Legato (ARTI)");
 		configParam(LEGATO_PARAM, 0.f, 1.f, 0.5f, "Legato", "%", 0, 100);
 		configParam(RATE_PARAM, 0.f, 1.f, 0.5f, "Rate (free-run BPM, or 1/4-1/32 note subdivision of the incoming CLOCK's beat)", " BPM", 0, 200, 40);
 		configButton(DICE_TIME, "Randomize Rate+Octaves (TIME)");
 		configParam(ENTROPY_PARAM, -1.f, 1.f, 0.f, "Entropy (play direction)");
-		configParam(HARMONY_PARAM, 0.f, 1.f, 0.f, "Harmony (chord size when POLY is on: 0.25-0.5=2 notes, 0.5-0.75=3, 0.75+=4 -- Voice 2 only carries the first extra tone)");
+		configParam(HARMONY_PARAM, 0.f, 1.f, 0.f, "Harmony (chord size: 0.25-0.5=2 notes, 0.5-0.75=3, 0.75+=4 -- with STRUM on, rolled one at a time within the gate window)");
 		configParam(CHAOS_PARAM, 0.f, 1.f, 0.f, "Chaos");
 		configButton(DICE_NAVY, "Randomize Entropy+Harmony+Chaos (NAVY)");
 		configParam(OCTAVES_PARAM, -3.f, 3.f, 0.f, "Octave shift")->snapEnabled = true;
+		configButton(OCT_BIAS_DOWN_PARAM, "Bias unfocused scene's octave DOWN from focused (0-3 octaves, random)");
+		configButton(OCT_BIAS_UP_PARAM, "Bias unfocused scene's octave UP from focused (0-3 octaves, random)");
 		configParam(ROOT_KEY_PARAM, 0.f, 11.f, 0.f, "Root key");
 		getParamQuantity(ROOT_KEY_PARAM)->snapEnabled = true;
 		configParam(SCALE_TYPE_PARAM, 0.f, 9.f, 0.f, "Scale");
@@ -142,13 +161,15 @@ struct SpacesCommand : Module {
 
 		configInput(VOCT_INPUT, "1V/oct pitch (poly, held notes)");
 		configInput(GATE_INPUT, "Gate (poly, held notes)");
-		configInput(VELOCITY_INPUT, "Velocity (poly)");
+		configInput(VELOCITY_INPUT, "Velocity (poly, from a MIDI-CV module -- replaces the generated 3-tier velocity outright when patched, per-channel matched to V/OCT+GATE)");
 		configInput(CLOCK_INPUT, "Clock (patched = external run/stop; unpatched = free-run on RATE)");
 		configInput(RESET_INPUT, "Reset (rising edge jumps the sequencer back to step 1)");
-		configOutput(VOICE1_PITCH_OUTPUT, "Voice 1 pitch (1V/oct)");
-		configOutput(VOICE1_GATE_OUTPUT, "Voice 1 gate");
-		configOutput(VOICE2_PITCH_OUTPUT, "Voice 2 pitch (1V/oct)");
-		configOutput(VOICE2_GATE_OUTPUT, "Voice 2 gate");
+		configOutput(A_PITCH_OUTPUT, "A pitch (1V/oct)");
+		configOutput(A_GATE_OUTPUT, "A gate");
+		configOutput(A_VEL_OUTPUT, "A velocity");
+		configOutput(B_PITCH_OUTPUT, "B pitch (1V/oct)");
+		configOutput(B_GATE_OUTPUT, "B gate");
+		configOutput(B_VEL_OUTPUT, "B velocity");
 	}
 
 	void captureFocusedScene() {
@@ -179,6 +200,24 @@ struct SpacesCommand : Module {
 		params[HARMONY_PARAM].setValue(s.harmony);
 		params[CHAOS_PARAM].setValue(s.chaos);
 		params[OCTAVES_PARAM].setValue(s.octaves);
+	}
+
+	// OCT bias buttons: sets the UNFOCUSED scene's octave relative to the
+	// FOCUSED scene (the focused scene's own octave is always just the
+	// anchor -- never modified here). dir is -1 (bias down) or +1 (bias
+	// up); magnitude is a surprise 0-3 octaves, clamped to the hard
+	// -3..3 range. This is a one-shot generation action, not a
+	// continuously-enforced invariant -- you can still turn the
+	// unfocused scene's OCTAVES knob apart afterward if you want to.
+	void applyOctaveBias(int dir) {
+		SceneState& focused = focusB ? sceneB : sceneA;
+		SceneState& unfocused = focusB ? sceneA : sceneB;
+		int magnitude = (int)std::floor(random::uniform() * 4.f);  // 0,1,2,3
+		magnitude = clamp(magnitude, 0, 3);
+		unfocused.octaves = clamp(focused.octaves + dir * (float)magnitude, -3.f, 3.f);
+		// Focused scene's own octaves (and its live OCTAVES_PARAM display)
+		// are untouched -- only the unfocused scene's stored value changes,
+		// invisibly until you switch focus onto it.
 	}
 
 	void randomizeMelo() {
@@ -213,7 +252,7 @@ struct SpacesCommand : Module {
 		json_t* rootJ = json_object();
 		json_object_set_new(rootJ, "latchOn", json_boolean(latchOnState));
 		json_object_set_new(rootJ, "arpSeqOn", json_boolean(arpSeqOnState));
-		json_object_set_new(rootJ, "polyOn", json_boolean(polyOnState));
+		json_object_set_new(rootJ, "strumOn", json_boolean(strumOnState));
 		json_object_set_new(rootJ, "freezeOn", json_boolean(freezeOnState));
 		json_object_set_new(rootJ, "routingState", json_integer(routingState));
 		// Fix: which scene was focused, and BOTH scenes' full stored data,
@@ -247,12 +286,12 @@ struct SpacesCommand : Module {
 		if (latchJ) latchOnState = json_boolean_value(latchJ);
 		json_t* arpSeqJ = json_object_get(rootJ, "arpSeqOn");
 		if (arpSeqJ) arpSeqOnState = json_boolean_value(arpSeqJ);
-		json_t* polyJ = json_object_get(rootJ, "polyOn");
-		if (polyJ) polyOnState = json_boolean_value(polyJ);
+		json_t* strumJ = json_object_get(rootJ, "strumOn");
+		if (strumJ) strumOnState = json_boolean_value(strumJ);
 		json_t* freezeJ = json_object_get(rootJ, "freezeOn");
 		if (freezeJ) freezeOnState = json_boolean_value(freezeJ);
 		json_t* routingJ = json_object_get(rootJ, "routingState");
-		if (routingJ) routingState = clamp((int)json_integer_value(routingJ), 0, 2);
+		if (routingJ) routingState = clamp((int)json_integer_value(routingJ), 0, 1);
 		json_t* focusBJ = json_object_get(rootJ, "focusB");
 		if (focusBJ) focusB = json_boolean_value(focusBJ);
 		auto sceneFromJson = [](json_t* sJ, SceneState& s) {
@@ -282,14 +321,16 @@ struct SpacesCommand : Module {
 		// Mode toggle LEDs: navy when on, unlit when off
 		if (latchTrig.process(params[LATCH_PARAM].getValue())) latchOnState = !latchOnState;
 		if (arpSeqTrig.process(params[ARPSEQ_PARAM].getValue())) arpSeqOnState = !arpSeqOnState;
-		if (polyTrig.process(params[POLY_PARAM].getValue())) polyOnState = !polyOnState;
+		if (strumTrig.process(params[STRUM_PARAM].getValue())) strumOnState = !strumOnState;
+		if (octBiasDownTrig.process(params[OCT_BIAS_DOWN_PARAM].getValue())) applyOctaveBias(-1);
+		if (octBiasUpTrig.process(params[OCT_BIAS_UP_PARAM].getValue())) applyOctaveBias(1);
 		if (freezeTrig.process(params[FREEZE_PARAM].getValue())) freezeOnState = !freezeOnState;
-		if (routingTrig.process(params[ROUTING_PARAM].getValue())) routingState = (routingState + 1) % 3;
+		if (routingTrig.process(params[ROUTING_PARAM].getValue())) routingState = (routingState + 1) % 2;
 		lights[LATCH_LIGHT].setBrightness(latchOnState ? 1.f : 0.f);
 		lights[ARPSEQ_LIGHT].setBrightness(arpSeqOnState ? 1.f : 0.f);
-		lights[POLY_LIGHT].setBrightness(polyOnState ? 1.f : 0.f);
+		lights[STRUM_LIGHT].setBrightness(strumOnState ? 1.f : 0.f);
 		lights[FREEZE_LIGHT].setBrightness(freezeOnState ? 1.f : 0.f);
-		lights[ROUTING_LIGHT].setBrightness(routingState / 2.f);
+		lights[ROUTING_LIGHT].setBrightness(routingState ? 1.f : 0.f);
 
 		if (meloTrig.process(params[MELO_PARAM].getValue())) randomizeMelo();
 		if (diceArtiTrig.process(params[DICE_ARTI].getValue())) randomizeArti();
@@ -311,7 +352,6 @@ struct SpacesCommand : Module {
 		float harmonyF = crossfade(sceneA.harmony, sceneB.harmony, morph);
 		float chaosF = crossfade(sceneA.chaos, sceneB.chaos, morph);
 		float octavesF = crossfade(sceneA.octaves, sceneB.octaves, morph);
-		int octaveShift = (int)std::round(octavesF);
 
 		// Live-morph display values -- see displayFaderValue etc. declaration above.
 		for (int i = 0; i < 8; i++)
@@ -325,40 +365,48 @@ struct SpacesCommand : Module {
 		displayOctaves = octavesF;
 
 		heldNotes.clear();
+		heldVelocities.clear();
+		bool velPatched = inputs[VELOCITY_INPUT].isConnected();
 		int channels = std::max(inputs[VOCT_INPUT].getChannels(), 1);
 		for (int c = 0; c < channels; c++) {
 			if (inputs[GATE_INPUT].getVoltage(c) >= 1.f) {
 				int pitch = 60 + (int)std::round(inputs[VOCT_INPUT].getVoltage(c) * 12.f);
 				heldNotes.push_back(pitch);
+				// Captured in lockstep with V/OCT+GATE, same channel index
+				// -- a real poly MIDI-CV module presents velocity the same
+				// way. 0-10V normalized to 0-1.
+				float vel = velPatched ? clamp(inputs[VELOCITY_INPUT].getVoltage(c) / 10.f, 0.f, 1.f) : 0.f;
+				heldVelocities.push_back(vel);
 			}
 		}
 		bool latchOn = latchOnState;
 		bool freezeOn = freezeOnState;
-		if (!heldNotes.empty() && latchOn) latchedNotes = heldNotes;
+		if (!heldNotes.empty() && latchOn) { latchedNotes = heldNotes; latchedVelocities = heldVelocities; }
 
 		// FREEZE: capture a full snapshot the instant it's engaged (rising
-		// edge only), matching the original exactly.
+		// edge only), matching the original exactly -- now whole scenes +
+		// MORPH position, see the field comment above.
 		if (freezeOn && !freezeWasOn) {
-			frozenRest = rest; frozenHarmony = harmonyF; frozenChaos = chaosF; frozenEntropy = entropy;
-			frozenRate01 = rate01; frozenOctaveShift = octaveShift;
-			for (int i = 0; i < 8; i++) frozenFaders[i] = displayFaderValue[i];
-			frozenHeldNotes = heldNotes;
-			frozenLatchedNotes = latchedNotes;
+			frozenSceneA = sceneA; frozenSceneB = sceneB; frozenMorph = morph;
+			frozenHeldNotes = heldNotes; frozenLatchedNotes = latchedNotes;
+			frozenHeldVelocities = heldVelocities; frozenLatchedVelocities = latchedVelocities;
 		}
 		freezeWasOn = freezeOn;
 
-		// Effective values: the frozen snapshot while FREEZE is engaged,
-		// live values otherwise. Everything below the note-generation
-		// point reads *Eff, never the raw live variables directly.
-		float restEff = freezeOn ? frozenRest : rest;
-		float harmonyEff = freezeOn ? frozenHarmony : harmonyF;
-		float chaosEff = freezeOn ? frozenChaos : chaosF;
-		float entropyEff = freezeOn ? frozenEntropy : entropy;
-		float rate01Eff = freezeOn ? frozenRate01 : rate01;
-		int octaveShiftEff = freezeOn ? frozenOctaveShift : octaveShift;
+		// Effective scenes/morph: the frozen snapshot while FREEZE is
+		// engaged, live otherwise. Everything below the note-generation
+		// point reads these, never sceneA/sceneB/morph directly.
+		const SceneState& effA = freezeOn ? frozenSceneA : sceneA;
+		const SceneState& effB = freezeOn ? frozenSceneB : sceneB;
+		float morphEff = freezeOn ? frozenMorph : morph;
+		float entropyEff = crossfade(effA.entropy, effB.entropy, morphEff);  // RATE/ENTROPY: always shared, one engine
+		float rate01Eff = crossfade(effA.rate, effB.rate, morphEff);
 		std::vector<int>& notesToPlay = freezeOn
 			? (latchOn ? frozenLatchedNotes : frozenHeldNotes)
 			: (latchOn ? latchedNotes : heldNotes);
+		std::vector<float>& velocitiesToPlay = freezeOn
+			? (latchOn ? frozenLatchedVelocities : frozenHeldVelocities)
+			: (latchOn ? latchedVelocities : heldVelocities);
 
 		// RESET: rising edge jumps the sequencer back to step 1 immediately
 		// -- repositions the pointer and updates the step lights right away,
@@ -446,10 +494,26 @@ struct SpacesCommand : Module {
 			samplesSinceLastStep = 0.0;
 		}
 
-		// Count down each voice's gate-high duration; when it reaches zero
+		// STRUM: while a gate is open and its stream has more than one
+		// chord tone queued, roll through them evenly across the gate
+		// window (one continuous gate, pitch stepping underneath -- this
+		// module has no polyphonic wires, see design notes). Recomputed
+		// every sample so the pitch output updates smoothly as the gate
+		// progresses.
+		if (aGateCountdown > 0 && aStrumPitches.size() > 1) {
+			float progress = 1.f - (float)aGateCountdown / (float)std::max(1, aGateTotalSamples);
+			int idx = clamp((int)(progress * aStrumPitches.size()), 0, (int)aStrumPitches.size() - 1);
+			lastAPitchVolt = (aStrumPitches[idx] - 60) / 12.f;
+		}
+		if (bGateCountdown > 0 && bStrumPitches.size() > 1) {
+			float progress = 1.f - (float)bGateCountdown / (float)std::max(1, bGateTotalSamples);
+			int idx = clamp((int)(progress * bStrumPitches.size()), 0, (int)bStrumPitches.size() - 1);
+			lastBPitchVolt = (bStrumPitches[idx] - 60) / 12.f;
+		}
+		// Count down each stream's gate-high duration; when it reaches zero
 		// the gate output drops low (see the end of process() below).
-		if (voice1GateCountdown > 0) { voice1GateCountdown--; }
-		if (voice2GateCountdown > 0) { voice2GateCountdown--; }
+		if (aGateCountdown > 0) { aGateCountdown--; }
+		if (bGateCountdown > 0) { bGateCountdown--; }
 
 		if (stepTriggered) {
 			int playDirection = 0;
@@ -476,12 +540,6 @@ struct SpacesCommand : Module {
 			}
 			currentStep = localStep;
 
-			float morphedFader = freezeOn ? frozenFaders[localStep] : crossfade(sceneA.faders[localStep], sceneB.faders[localStep], morph);
-			float density = params[DENSITY_PARAM].getValue();
-			float faderProb = morphedFader;
-			if (density < 0.5f) faderProb = morphedFader * (density / 0.5f);
-			else if (density > 0.5f) faderProb = morphedFader + (1.f - morphedFader) * ((density - 0.5f) / 0.5f);
-
 			// ARP mode has nothing to arpeggiate without a held/latched note
 			// (or FREEZE) -- rest rather than falling back to a SEQ-style
 			// pitch. SEQ mode never needed notesToPlay for pitch, so it's
@@ -490,16 +548,55 @@ struct SpacesCommand : Module {
 			// the same gap for the CLOCK-patched path, where steps always
 			// fire regardless of held notes).
 			bool arpNeedsNotes = arpSeqOnState && notesToPlay.empty() && !freezeOn;
+			float density = params[DENSITY_PARAM].getValue();
 
-			if (!arpNeedsNotes && random::uniform() <= faderProb && !(random::uniform() <= restEff)) {
-				int rootKeyIdx = (int)std::round(params[ROOT_KEY_PARAM].getValue());
-				int scaleIdx = (int)std::round(params[SCALE_TYPE_PARAM].getValue());
-				static const std::vector<std::vector<int>> scales = {
-					{0,2,4,5,7,9,11,12}, {0,2,3,5,7,8,10,12}, {0,3,5,7,10,12,15,17}, {0,2,4,7,9,12,14,16},
-					{0,2,3,5,7,9,10,12}, {0,1,3,5,7,8,10,12}, {0,2,4,6,7,9,11,12}, {0,2,4,5,7,9,10,12},
-					{0,2,3,5,7,8,11,12}, {0,2,3,5,7,9,11,12}
-				};
-				const std::vector<int>& scaleOffsets = scales[clamp(scaleIdx, 0, 9)];
+			// External velocity (MIDI-CV, via VELOCITY_INPUT): ARP mode
+			// matches the exact note index that's about to play; SEQ mode
+			// has no principled note-to-velocity pairing (pitch ignores
+			// which keys are held), so it averages everything currently
+			// held. One shared value -- one physical performer -- applied
+			// identically to both streams below.
+			float externalVelocity = 0.f;
+			if (velPatched && !velocitiesToPlay.empty()) {
+				if (arpSeqOnState && !notesToPlay.empty())
+					externalVelocity = velocitiesToPlay[localStep % velocitiesToPlay.size()];
+				else {
+					float sum = 0.f;
+					for (float v : velocitiesToPlay) sum += v;
+					externalVelocity = sum / velocitiesToPlay.size();
+				}
+			}
+
+			static const std::vector<std::vector<int>> scales = {
+				{0,2,4,5,7,9,11,12}, {0,2,3,5,7,8,10,12}, {0,3,5,7,10,12,15,17}, {0,2,4,7,9,12,14,16},
+				{0,2,3,5,7,9,10,12}, {0,1,3,5,7,8,10,12}, {0,2,4,6,7,9,11,12}, {0,2,4,5,7,9,10,12},
+				{0,2,3,5,7,8,11,12}, {0,2,3,5,7,9,11,12}
+			};
+			int rootKeyIdx = (int)std::round(params[ROOT_KEY_PARAM].getValue());
+			int scaleIdx = (int)std::round(params[SCALE_TYPE_PARAM].getValue());
+			const std::vector<int>& scaleOffsets = scales[clamp(scaleIdx, 0, 9)];
+
+			// One stream's worth of note generation. weight is this
+			// stream's crossfader presence (always 1.0 in Blend mode --
+			// Split mode folds the equal-power weight straight into
+			// DENSITY's existing reshape rather than a separate roll, so
+			// a stream fades to true silence only at its own crossfader
+			// extreme, gradually, same mechanism REST/DENSITY already use).
+			struct StreamOut { bool fired = false; std::vector<int> pitches; float velocity = 0.f; };
+			auto generateStream = [&](float restIn, float legatoIn, float harmonyIn, float chaosIn,
+			                          float octavesIn, float faderStep, float weight) -> StreamOut {
+				StreamOut out;
+				float restAdj = restIn;
+				if (legatoIn >= 0.8f) restAdj = restIn * clamp((1.f - legatoIn) / 0.2f, 0.f, 1.f);
+
+				float effDensity = density * weight;
+				float faderProb = faderStep;
+				if (effDensity < 0.5f) faderProb = faderStep * (effDensity / 0.5f);
+				else if (effDensity > 0.5f) faderProb = faderStep + (1.f - faderStep) * ((effDensity - 0.5f) / 0.5f);
+
+				if (arpNeedsNotes || !(random::uniform() <= faderProb) || (random::uniform() <= restAdj))
+					return out;
+
 				int rawPitch, octaveBase;
 				if (arpSeqOnState && !notesToPlay.empty()) {
 					rawPitch = notesToPlay[localStep % notesToPlay.size()];
@@ -508,66 +605,99 @@ struct SpacesCommand : Module {
 					rawPitch = 48 + rootKeyIdx + scaleOffsets[localStep % (int)scaleOffsets.size()];
 					octaveBase = ((rawPitch - rootKeyIdx) / 12) * 12 + rootKeyIdx;
 				}
-
-				// CHAOS: independent random +-1 octave jump, rolled separately
-				// per note (matching the original's per-pitchList-entry roll)
-				// -- applied to both Voice 1 and, when POLY adds a second
-				// note, Voice 2 independently.
+				int octaveShiftLocal = (int)std::round(octavesIn);
 				auto applyChaosAndClamp = [&](int p) {
-					if (chaosEff > 0.2f && random::uniform() <= chaosEff)
+					if (chaosIn > 0.2f && random::uniform() <= chaosIn)
 						p += (random::uniform() < 0.5f) ? 12 : -12;
-					// Matches the original VST's juce::jlimit(0, 127, ...).
-					return clamp(p + 12 * octaveShiftEff, 0, 127);
+					return clamp(p + 12 * octaveShiftLocal, 0, 127);
 				};
 
-				int voice1Pitch = applyChaosAndClamp(rawPitch);
-
-				// POLY: chord-stacking, matching the original's HARMONY-tiered
-				// note count (2/3/4 notes for HARMONY 0.25-0.5/0.5-0.75/0.75+),
-				// built from scale-offsets stepped a third at a time. The
-				// original's own two internal voices always doubled the SAME
-				// chord rather than splitting it (only its MIDI-out actually
-				// carried the extra chord tones); since Command has two
-				// genuinely independent Pitch/Gate pairs, we do one better and
-				// actually split the chord across them -- Voice 1 keeps the
-				// root/arp note, Voice 2 takes the first harmony tone whenever
-				// HARMONY calls for 2+ notes. 3-4 note chords aren't
-				// representable with only 2 CV pairs, so anything past the
-				// first harmony tone is dropped -- a disclosed simplification.
-				int voice2Pitch = voice1Pitch;
-				if (polyOnState) {
-					int maxAllowedNotes = (harmonyEff > 0.25f && harmonyEff < 0.5f) ? 2
-					                     : (harmonyEff >= 0.5f && harmonyEff < 0.75f) ? 3
-					                     : (harmonyEff >= 0.75f) ? 4 : 1;
-					if (maxAllowedNotes > 1) {
-						int harmonyPitch = octaveBase + scaleOffsets[(localStep + 2) % (int)scaleOffsets.size()];
-						voice2Pitch = applyChaosAndClamp(harmonyPitch);
+				out.pitches.push_back(applyChaosAndClamp(rawPitch));
+				// HARMONY still decides chord size (2/3/4 notes for
+				// 0.25-0.5/0.5-0.75/0.75+); STRUM decides whether those
+				// extra tones get rolled or dropped -- see design notes
+				// on why this replaced POLY (no polyphonic wires here).
+				int maxAllowedNotes = (harmonyIn > 0.25f && harmonyIn < 0.5f) ? 2
+				                     : (harmonyIn >= 0.5f && harmonyIn < 0.75f) ? 3
+				                     : (harmonyIn >= 0.75f) ? 4 : 1;
+				if (strumOnState && maxAllowedNotes > 1) {
+					for (int n = 1; n < maxAllowedNotes; ++n) {
+						int tone = octaveBase + scaleOffsets[(localStep + n * 2) % (int)scaleOffsets.size()];
+						out.pitches.push_back(applyChaosAndClamp(tone));
 					}
 				}
 
-				lastVoice1PitchVolt = (voice1Pitch - 60) / 12.f;
-				lastVoice2PitchVolt = (voice2Pitch - 60) / 12.f;
+				// 3-tier velocity (soft/medium/accent), leaned by DENSITY
+				// toward soft at low density and accent at high density.
+				// Independent of the fire-probability roll above -- FADER
+				// only ever affects whether a step fires, nothing else.
+				static const float kTiers[3] = {0.25f, 0.60f, 1.00f};
+				float pSoft = 0.8f + density * (0.05f - 0.8f);
+				float pAccent = 0.05f + density * (0.8f - 0.05f);
+				float pMedium = clamp(1.f - pSoft - pAccent, 0.f, 1.f);
+				float total = std::max(0.0001f, pSoft + pMedium + pAccent);
+				pSoft /= total; pMedium /= total;
+				float r = random::uniform();
+				float tierVel = (r < pSoft) ? kTiers[0] : (r < pSoft + pMedium) ? kTiers[1] : kTiers[2];
+				out.velocity = velPatched ? externalVelocity : tierVel;
+				out.fired = true;
+				return out;
+			};
 
-				// Both voices always receive a triggered note, every step --
-				// matches the real original exactly (routing never gated
-				// which voice fires, only how audio got mixed, back when
-				// this module had audio). Each voice's own GATE LEN knob
-				// decides how long ITS gate output stays high.
-				voice1GateCountdown = std::max(1, (int)std::round(lastStepIntervalSamples * kGateLenFraction));
-				voice2GateCountdown = std::max(1, (int)std::round(lastStepIntervalSamples * kGateLenFraction));
+			bool splitMode = (routingState == 1);
+			float wA = splitMode ? std::cos(morphEff * float(M_PI) / 2.f) : 1.f;
+			float wB = splitMode ? std::sin(morphEff * float(M_PI) / 2.f) : 1.f;
+
+			StreamOut rA, rB;
+			if (splitMode) {
+				rA = generateStream(effA.rest, effA.legato, effA.harmony, effA.chaos, effA.octaves, effA.faders[localStep], wA);
+				rB = generateStream(effB.rest, effB.legato, effB.harmony, effB.chaos, effB.octaves, effB.faders[localStep], wB);
+			} else {
+				// Blend: one shared stream, computed once and mirrored to
+				// both outputs identically -- A and B are only ever two
+				// wires carrying the same signal here, never independently
+				// rolled (that would make Blend behave like a hidden second
+				// Split, which it explicitly is not).
+				float restBlend = crossfade(effA.rest, effB.rest, morphEff);
+				float legatoBlend = crossfade(effA.legato, effB.legato, morphEff);
+				float harmonyBlend = crossfade(effA.harmony, effB.harmony, morphEff);
+				float chaosBlend = crossfade(effA.chaos, effB.chaos, morphEff);
+				float octavesBlend = crossfade(effA.octaves, effB.octaves, morphEff);
+				float faderBlend = crossfade(effA.faders[localStep], effB.faders[localStep], morphEff);
+				rA = generateStream(restBlend, legatoBlend, harmonyBlend, chaosBlend, octavesBlend, faderBlend, 1.f);
+				rB = rA;
+			}
+
+			if (rA.fired) {
+				lastAPitchVolt = (rA.pitches[0] - 60) / 12.f;
+				aStrumPitches = rA.pitches;
+				aGateTotalSamples = std::max(1, (int)std::round(lastStepIntervalSamples * kGateLenFraction));
+				aGateCountdown = aGateTotalSamples;
+				lastAVelVolt = rA.velocity * 10.f;  // 0-10V
+			}
+			if (rB.fired) {
+				lastBPitchVolt = (rB.pitches[0] - 60) / 12.f;
+				bStrumPitches = rB.pitches;
+				bGateTotalSamples = std::max(1, (int)std::round(lastStepIntervalSamples * kGateLenFraction));
+				bGateCountdown = bGateTotalSamples;
+				lastBVelVolt = rB.velocity * 10.f;
 			}
 			for (int i = 0; i < 8; i++)
 				lights[STEP_LIGHTS + i].setBrightness(i == localStep ? 1.f : 0.f);
 		}
 
-		// CV Pitch/Gate outputs, one pair per voice. Pitch matches on both
-		// unless POLY splits a chord across them (see above); gate
-		// high/low is independent per voice either way, driven by each
-		// voice's own GATE LEN knob via the countdown decremented above.
-		outputs[VOICE1_PITCH_OUTPUT].setVoltage(lastVoice1PitchVolt);
-		outputs[VOICE2_PITCH_OUTPUT].setVoltage(lastVoice2PitchVolt);
-		outputs[VOICE1_GATE_OUTPUT].setVoltage(voice1GateCountdown > 0 ? 10.f : 0.f);
-		outputs[VOICE2_GATE_OUTPUT].setVoltage(voice2GateCountdown > 0 ? 10.f : 0.f);
+		// CV Pitch/Gate/Velocity outputs, one triplet per stream. In Blend
+		// mode A and B always carry the identical signal; in Split mode
+		// each stream is genuinely independent (see generateStream above).
+		// Velocity holds its last value between fires, same as pitch --
+		// it's sample-and-held on trigger, never reset or drooped between
+		// notes, and a REST'd/silenced step simply leaves it untouched.
+		outputs[A_PITCH_OUTPUT].setVoltage(lastAPitchVolt);
+		outputs[B_PITCH_OUTPUT].setVoltage(lastBPitchVolt);
+		outputs[A_GATE_OUTPUT].setVoltage(aGateCountdown > 0 ? 10.f : 0.f);
+		outputs[B_GATE_OUTPUT].setVoltage(bGateCountdown > 0 ? 10.f : 0.f);
+		outputs[A_VEL_OUTPUT].setVoltage(lastAVelVolt);
+		outputs[B_VEL_OUTPUT].setVoltage(lastBVelVolt);
 	}
 };
 
@@ -876,6 +1006,16 @@ struct SquareButton : ParamWidget {
 	}
 };
 
+// Half-width variant of SquareButton for the split OCT bias button (one
+// column-slot in the DICE/RANDOM cluster, rendered as two adjacent
+// halves rather than a single square) -- same drawing/letter logic,
+// just narrower.
+struct OctBiasButton : SquareButton {
+	OctBiasButton() {
+		box.size = mm2px(Vec(5.5, 6.5));
+	}
+};
+
 struct VFaderHandle : ParamWidget {
 	float trackY0Px = 0.f, trackY1Px = 0.f;  // Y at value=1 (top), value=0 (bottom)
 	float centerX = 0.f;
@@ -885,7 +1025,7 @@ struct VFaderHandle : ParamWidget {
 	int lightId = -1;  // step-position LED, embedded in the cap itself (see draw())
 
 	VFaderHandle() {
-		box.size = mm2px(Vec(9.5, 3.5));  // height halved per explicit request
+		box.size = mm2px(Vec(8.0, 3.5));  // width trimmed toward a slimmer F8R-style nub (was 9.5mm) -- height unchanged, already halved per earlier request. Fader pitch itself is tightened separately in the layout script, not by this width change (see design notes: the two are independent).
 	}
 
 	void onButton(const ButtonEvent& e) override {
@@ -963,6 +1103,10 @@ struct VFaderHandle : ParamWidget {
 		// old separate row of red lights above the faders. Lit red when
 		// this fader is the currently-playing step, a dim unlit dot
 		// otherwise (so the LED window is always visible, on or off).
+		// Dot/glow scaled down in step with the cap's own width trim
+		// (9.5mm->8mm, factor ~0.84) so it doesn't clip against the
+		// now-narrower cap edges -- a fixed-size glow was fine at the old
+		// width but would look slightly cut off at this one.
 		float brightness = (mod && lightId >= 0) ? mod->lights[lightId].getBrightness() : 0.f;
 		NVGcolor ledColor = nvgRGBA(
 			(unsigned char)(0x40 + (0xFF - 0x40) * brightness),
@@ -970,19 +1114,19 @@ struct VFaderHandle : ParamWidget {
 			(unsigned char)(0x12 + (0x28 - 0x12) * brightness),
 			255);
 		nvgBeginPath(args.vg);
-		nvgCircle(args.vg, cx, ledY, 1.15f);
+		nvgCircle(args.vg, cx, ledY, 0.97f);
 		nvgFillColor(args.vg, ledColor);
 		nvgFill(args.vg);
 		if (brightness > 0.05f) {
 			// Clip the glow to the cap's own rounded-rect body -- the cap is
-			// only 3.5mm tall, so an unclipped glow would bleed past its
-			// edges onto the track behind it.
+			// only 3.5mm tall (and now 8mm wide), so an unclipped glow would
+			// bleed past its edges onto the track behind it.
 			nvgSave(args.vg);
 			nvgIntersectScissor(args.vg, 0.f, 0.f, box.size.x, box.size.y);
-			NVGpaint glow = nvgRadialGradient(args.vg, cx, ledY, 0.3f, 2.0f,
+			NVGpaint glow = nvgRadialGradient(args.vg, cx, ledY, 0.25f, 1.68f,
 				nvgRGBA(0xFF, 0x30, 0x30, (unsigned char)(160 * brightness)), nvgRGBA(0xFF, 0x30, 0x30, 0));
 			nvgBeginPath(args.vg);
-			nvgRect(args.vg, cx - 3.f, ledY - 3.f, 6.f, 6.f);
+			nvgRect(args.vg, cx - 2.53f, ledY - 2.53f, 5.05f, 5.05f);
 			nvgFillPaint(args.vg, glow);
 			nvgFill(args.vg);
 			nvgRestore(args.vg);
@@ -997,14 +1141,16 @@ struct SpacesCommandWidget : ModuleWidget {
 
 // I/O
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.4, 19.2)), module, SpacesCommand::CLOCK_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(39.56, 19.2)), module, SpacesCommand::RESET_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(59.71, 19.2)), module, SpacesCommand::VOCT_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(79.87, 19.2)), module, SpacesCommand::GATE_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(100.02, 19.2)), module, SpacesCommand::VELOCITY_INPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(120.17, 19.2)), module, SpacesCommand::VOICE1_PITCH_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(140.33, 19.2)), module, SpacesCommand::VOICE1_GATE_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(160.48, 19.2)), module, SpacesCommand::VOICE2_PITCH_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(180.64, 19.2)), module, SpacesCommand::VOICE2_GATE_OUTPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(35.53, 19.2)), module, SpacesCommand::RESET_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(51.65, 19.2)), module, SpacesCommand::VOCT_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(67.77, 19.2)), module, SpacesCommand::GATE_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(83.9, 19.2)), module, SpacesCommand::VELOCITY_INPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(100.02, 19.2)), module, SpacesCommand::A_PITCH_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(116.14, 19.2)), module, SpacesCommand::A_GATE_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(132.27, 19.2)), module, SpacesCommand::A_VEL_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(148.39, 19.2)), module, SpacesCommand::B_PITCH_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(164.51, 19.2)), module, SpacesCommand::B_GATE_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(180.64, 19.2)), module, SpacesCommand::B_VEL_OUTPUT));
 
 		// FEEL: macro knobs -- custom MorphKnob for live scene-blend display, matching original VST
 		{
@@ -1062,9 +1208,9 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(159.08, 45.02)), module, SpacesCommand::POLY_PARAM);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(159.08, 45.02)), module, SpacesCommand::STRUM_PARAM);
 			btn->mod = module;
-			btn->lightId = SpacesCommand::POLY_LIGHT;
+			btn->lightId = SpacesCommand::STRUM_LIGHT;
 			btn->litColor = nvgRGB(0x2E, 0x4A, 0x6E);
 			addParam(btn);
 		}
@@ -1076,9 +1222,11 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(btn);
 		}
 		{
-			// Stub: cycles/lights as before, but has no effect on this
-			// module's own output anymore -- reserved for a future
-			// connector/voice module to read.
+			// ROUTING: BLEND/SPLIT toggle, now genuinely read in process()
+			// (Split mode's per-stream A/B generation). Two states, one
+			// bit of light brightness -- the old 3-state threshold bug
+			// (brightness>0.5 only ever distinguished 2 of 3 states) is
+			// moot now, there's nothing left to threshold.
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(180.04, 45.02)), module, SpacesCommand::ROUTING_PARAM);
 			btn->mod = module;
 			btn->lightId = SpacesCommand::ROUTING_LIGHT;
@@ -1205,24 +1353,40 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(fader);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(140.53, 103.84)), module, SpacesCommand::MELO_PARAM);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(126.02, 103.84)), module, SpacesCommand::MELO_PARAM);
 			btn->unlitColor = nvgRGB(0x6A, 0x42, 0x08);  // amber family -- matches the 8 pattern faders it randomizes
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(153.53, 103.84)), module, SpacesCommand::DICE_ARTI);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(139.02, 103.84)), module, SpacesCommand::DICE_ARTI);
 			btn->unlitColor = nvgRGB(0x5A, 0x1E, 0x1E);  // maroon family -- matches REST+LEGATO knob rings
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(166.53, 103.84)), module, SpacesCommand::DICE_TIME);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(152.02, 103.84)), module, SpacesCommand::DICE_TIME);
 			btn->unlitColor = nvgRGB(0x5A, 0x40, 0x18);  // brass/ochre family -- matches RATE+OCTAVES knob rings
 			addParam(btn);
 		}
 		{
-			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(179.53, 103.84)), module, SpacesCommand::DICE_NAVY);
+			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(165.02, 103.84)), module, SpacesCommand::DICE_NAVY);
 			btn->unlitColor = nvgRGB(0x1E, 0x30, 0x48);  // navy family -- matches ENTROPY+HARMONY+CHAOS knob rings
 			addParam(btn);
+		}
+		{
+			// OCT: one column-slot, split left/right into two half-width
+			// buttons -- matches keyboard octave-switch convention (down
+			// on the left, up on the right), not a circular dice bezel.
+			// Sets the UNFOCUSED scene's octave relative to the focused
+			// one (magnitude a surprise 0-3 octaves) -- see OCT_BIAS_DOWN/
+			// UP_PARAM and applyOctaveBias() in the module.
+			auto* down = createParamCentered<OctBiasButton>(mm2px(Vec(174.77, 103.84)), module, SpacesCommand::OCT_BIAS_DOWN_PARAM);
+			down->unlitColor = nvgRGB(0x5A, 0x40, 0x18);  // brass family -- same as TIME, since it shares OCTAVES' identity
+			down->letter = "-";
+			addParam(down);
+			auto* up = createParamCentered<OctBiasButton>(mm2px(Vec(181.27, 103.84)), module, SpacesCommand::OCT_BIAS_UP_PARAM);
+			up->unlitColor = nvgRGB(0x5A, 0x40, 0x18);
+			up->letter = "+";
+			addParam(up);
 		}
 
 	}
