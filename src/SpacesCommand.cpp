@@ -37,6 +37,8 @@ struct SpacesCommand : Module {
 	enum LightId {
 		ENUMS(STEP_LIGHTS, 8), SCENE_A_LIGHT, SCENE_B_LIGHT,
 		LATCH_LIGHT, ARPSEQ_LIGHT, STRUM_LIGHT, FREEZE_LIGHT, ROUTING_LIGHT,
+		MELO_FLASH_LIGHT, ARTI_FLASH_LIGHT, TIME_FLASH_LIGHT, NAVY_FLASH_LIGHT,
+		OCT_DOWN_FLASH_LIGHT, OCT_UP_FLASH_LIGHT,
 		LIGHTS_LEN
 	};
 
@@ -108,6 +110,13 @@ struct SpacesCommand : Module {
 	std::vector<float> frozenHeldVelocities, frozenLatchedVelocities;
 	dsp::SchmittTrigger sceneATrig, sceneBTrig, clockTrig, resetTrig;
 	dsp::SchmittTrigger diceArtiTrig, diceTimeTrig, diceNavyTrig, meloTrig;
+	// Momentary flash timers for the RANDOM cluster + OCT bias buttons --
+	// these are one-shot actions, not persistent toggle states, so they
+	// need their own brief on/off pulse rather than reading a held param
+	// value. ~120ms at whatever the engine's actual sample rate is.
+	int meloFlash = 0, artiFlash = 0, timeFlash = 0, navyFlash = 0;
+	int octDownFlash = 0, octUpFlash = 0;
+	static constexpr float kFlashSeconds = 0.12f;
 
 	// LATCH/ARP-SEQ/POLY/FREEZE/ROUTING are also momentary buttons that
 	// must TOGGLE persisted state -- same bug/fix as the wave buttons.
@@ -149,8 +158,8 @@ struct SpacesCommand : Module {
 		configParam(CHAOS_PARAM, 0.f, 1.f, 0.f, "Chaos");
 		configButton(DICE_NAVY, "Randomize Entropy+Harmony+Chaos (NAVY)");
 		configParam(OCTAVES_PARAM, -3.f, 3.f, 0.f, "Octave shift")->snapEnabled = true;
-		configButton(OCT_BIAS_DOWN_PARAM, "Bias unfocused scene's octave DOWN from focused (0-3 octaves, random)");
-		configButton(OCT_BIAS_UP_PARAM, "Bias unfocused scene's octave UP from focused (0-3 octaves, random)");
+		configButton(OCT_BIAS_DOWN_PARAM, "Nudge unfocused scene's octave DOWN by 1 (repeatable)");
+		configButton(OCT_BIAS_UP_PARAM, "Nudge unfocused scene's octave UP by 1 (repeatable)");
 		configParam(ROOT_KEY_PARAM, 0.f, 11.f, 0.f, "Root key");
 		getParamQuantity(ROOT_KEY_PARAM)->snapEnabled = true;
 		configParam(SCALE_TYPE_PARAM, 0.f, 9.f, 0.f, "Scale");
@@ -202,22 +211,16 @@ struct SpacesCommand : Module {
 		params[OCTAVES_PARAM].setValue(s.octaves);
 	}
 
-	// OCT bias buttons: sets the UNFOCUSED scene's octave relative to the
-	// FOCUSED scene (the focused scene's own octave is always just the
-	// anchor -- never modified here). dir is -1 (bias down) or +1 (bias
-	// up); magnitude is a surprise 0-3 octaves, clamped to the hard
-	// -3..3 range. This is a one-shot generation action, not a
-	// continuously-enforced invariant -- you can still turn the
-	// unfocused scene's OCTAVES knob apart afterward if you want to.
+	// OCT bias buttons: nudges the UNFOCUSED scene's octave by exactly
+	// +-1 from ITS OWN current setting, relative to nothing but its own
+	// prior value (the focused scene is never read or touched by this --
+	// unlike the original random-bias design, this has no anchor to jump
+	// toward, it's a plain incremental step). Click "-" twice in a row:
+	// the unfocused scene goes down two octaves from wherever it already
+	// was. Clamped to the hard -3..3 range either way.
 	void applyOctaveBias(int dir) {
-		SceneState& focused = focusB ? sceneB : sceneA;
 		SceneState& unfocused = focusB ? sceneA : sceneB;
-		int magnitude = (int)std::floor(random::uniform() * 4.f);  // 0,1,2,3
-		magnitude = clamp(magnitude, 0, 3);
-		unfocused.octaves = clamp(focused.octaves + dir * (float)magnitude, -3.f, 3.f);
-		// Focused scene's own octaves (and its live OCTAVES_PARAM display)
-		// are untouched -- only the unfocused scene's stored value changes,
-		// invisibly until you switch focus onto it.
+		unfocused.octaves = clamp(unfocused.octaves + (float)dir, -3.f, 3.f);
 	}
 
 	void randomizeMelo() {
@@ -322,8 +325,6 @@ struct SpacesCommand : Module {
 		if (latchTrig.process(params[LATCH_PARAM].getValue())) latchOnState = !latchOnState;
 		if (arpSeqTrig.process(params[ARPSEQ_PARAM].getValue())) arpSeqOnState = !arpSeqOnState;
 		if (strumTrig.process(params[STRUM_PARAM].getValue())) strumOnState = !strumOnState;
-		if (octBiasDownTrig.process(params[OCT_BIAS_DOWN_PARAM].getValue())) applyOctaveBias(-1);
-		if (octBiasUpTrig.process(params[OCT_BIAS_UP_PARAM].getValue())) applyOctaveBias(1);
 		if (freezeTrig.process(params[FREEZE_PARAM].getValue())) freezeOnState = !freezeOnState;
 		if (routingTrig.process(params[ROUTING_PARAM].getValue())) routingState = (routingState + 1) % 2;
 		lights[LATCH_LIGHT].setBrightness(latchOnState ? 1.f : 0.f);
@@ -332,10 +333,24 @@ struct SpacesCommand : Module {
 		lights[FREEZE_LIGHT].setBrightness(freezeOnState ? 1.f : 0.f);
 		lights[ROUTING_LIGHT].setBrightness(routingState ? 1.f : 0.f);
 
-		if (meloTrig.process(params[MELO_PARAM].getValue())) randomizeMelo();
-		if (diceArtiTrig.process(params[DICE_ARTI].getValue())) randomizeArti();
-		if (diceTimeTrig.process(params[DICE_TIME].getValue())) randomizeTime();
-		if (diceNavyTrig.process(params[DICE_NAVY].getValue())) randomizeNavy();
+		if (meloTrig.process(params[MELO_PARAM].getValue())) { randomizeMelo(); meloFlash = (int)std::round(args.sampleRate * kFlashSeconds); }
+		if (diceArtiTrig.process(params[DICE_ARTI].getValue())) { randomizeArti(); artiFlash = (int)std::round(args.sampleRate * kFlashSeconds); }
+		if (diceTimeTrig.process(params[DICE_TIME].getValue())) { randomizeTime(); timeFlash = (int)std::round(args.sampleRate * kFlashSeconds); }
+		if (diceNavyTrig.process(params[DICE_NAVY].getValue())) { randomizeNavy(); navyFlash = (int)std::round(args.sampleRate * kFlashSeconds); }
+		if (octBiasDownTrig.process(params[OCT_BIAS_DOWN_PARAM].getValue())) { applyOctaveBias(-1); octDownFlash = (int)std::round(args.sampleRate * kFlashSeconds); }
+		if (octBiasUpTrig.process(params[OCT_BIAS_UP_PARAM].getValue())) { applyOctaveBias(1); octUpFlash = (int)std::round(args.sampleRate * kFlashSeconds); }
+		if (meloFlash > 0) meloFlash--;
+		if (artiFlash > 0) artiFlash--;
+		if (timeFlash > 0) timeFlash--;
+		if (navyFlash > 0) navyFlash--;
+		if (octDownFlash > 0) octDownFlash--;
+		if (octUpFlash > 0) octUpFlash--;
+		lights[MELO_FLASH_LIGHT].setBrightness(meloFlash > 0 ? 1.f : 0.f);
+		lights[ARTI_FLASH_LIGHT].setBrightness(artiFlash > 0 ? 1.f : 0.f);
+		lights[TIME_FLASH_LIGHT].setBrightness(timeFlash > 0 ? 1.f : 0.f);
+		lights[NAVY_FLASH_LIGHT].setBrightness(navyFlash > 0 ? 1.f : 0.f);
+		lights[OCT_DOWN_FLASH_LIGHT].setBrightness(octDownFlash > 0 ? 1.f : 0.f);
+		lights[OCT_UP_FLASH_LIGHT].setBrightness(octUpFlash > 0 ? 1.f : 0.f);
 
 		captureFocusedScene();
 
@@ -957,9 +972,17 @@ struct SquareButton : ParamWidget {
 	Module* mod = nullptr;
 	int lightId = -1;
 	NVGcolor litColor = nvgRGB(0xE0, 0x40, 0x40);
-	NVGcolor unlitColor = nvgRGB(0x2A, 0x28, 0x24);
+	// Default unlit state now matches the section-box background (#EDE7DC)
+	// instead of a solid dark block -- buttons should read as empty until
+	// actually in use, only the accent color shows when lit.
+	NVGcolor unlitColor = nvgRGB(0xED, 0xE7, 0xDC);
 	std::string letter;
-	NVGcolor letterColor = nvgRGB(0xE8, 0xE8, 0xE8);
+	// Letter/symbol color is chosen per-state rather than fixed: dark
+	// against the light unlit background, light against whatever the
+	// (usually dark) lit accent color is -- a single fixed color can't
+	// stay legible across both.
+	NVGcolor unlitLetterColor = nvgRGB(0x3A, 0x36, 0x30);
+	NVGcolor litLetterColor = nvgRGB(0xF0, 0xEC, 0xE4);
 
 	SquareButton() {
 		box.size = mm2px(Vec(6.5, 6.5));
@@ -998,7 +1021,7 @@ struct SquareButton : ParamWidget {
 			if (font && font->handle) {
 				nvgFontFaceId(args.vg, font->handle);
 				nvgFontSize(args.vg, box.size.y * 0.55f);
-				nvgFillColor(args.vg, letterColor);
+				nvgFillColor(args.vg, lit ? litLetterColor : unlitLetterColor);
 				nvgTextAlign(args.vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
 				nvgText(args.vg, box.size.x / 2.f, box.size.y / 2.f, letter.c_str(), NULL);
 			}
@@ -1247,11 +1270,17 @@ struct SpacesCommandWidget : ModuleWidget {
 		}
 
 		// SCENE: A/B focus (square, letter baked in, red glow when focused) + crossfader fader cap
+		// Out of scope for the RANDOM/CONTROLS "empty until lit" pass --
+		// explicitly pinned to their prior dark-square look (both states
+		// dark, so the letter stays light-colored in both, unlike the new
+		// class default which assumes a light unlit background).
 		{
 			auto* btnA = createParamCentered<SquareButton>(mm2px(Vec(20.0, 70.54)), module, SpacesCommand::SCENE_A_PARAM);
 			btnA->mod = module;
 			btnA->lightId = SpacesCommand::SCENE_A_LIGHT;
 			btnA->litColor = nvgRGB(0xE0, 0x40, 0x40);
+			btnA->unlitColor = nvgRGB(0x2A, 0x28, 0x24);
+			btnA->unlitLetterColor = nvgRGB(0xE8, 0xE8, 0xE8);
 			btnA->letter = "A";
 			addParam(btnA);
 		}
@@ -1260,6 +1289,8 @@ struct SpacesCommandWidget : ModuleWidget {
 			btnB->mod = module;
 			btnB->lightId = SpacesCommand::SCENE_B_LIGHT;
 			btnB->litColor = nvgRGB(0xE0, 0x40, 0x40);
+			btnB->unlitColor = nvgRGB(0x2A, 0x28, 0x24);
+			btnB->unlitLetterColor = nvgRGB(0xE8, 0xE8, 0xE8);
 			btnB->letter = "B";
 			addParam(btnB);
 		}
@@ -1365,38 +1396,57 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(fader);
 		}
 		{
+			// Empty (background) until pressed, then a brief flash in its
+			// accent color -- these are one-shot randomize actions, not
+			// persistent toggles, so a momentary pulse (meloFlash etc. in
+			// the module) is the honest way to show "this just fired"
+			// rather than looking permanently colored/active.
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(126.02, 103.84)), module, SpacesCommand::MELO_PARAM);
-			btn->unlitColor = nvgRGB(0x6A, 0x42, 0x08);  // amber family -- matches the 8 pattern faders it randomizes
+			btn->mod = module;
+			btn->lightId = SpacesCommand::MELO_FLASH_LIGHT;
+			btn->litColor = nvgRGB(0x6A, 0x42, 0x08);  // amber family -- matches the 8 pattern faders it randomizes
 			addParam(btn);
 		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(139.02, 103.84)), module, SpacesCommand::DICE_ARTI);
-			btn->unlitColor = nvgRGB(0x5A, 0x1E, 0x1E);  // maroon family -- matches REST+LEGATO knob rings
+			btn->mod = module;
+			btn->lightId = SpacesCommand::ARTI_FLASH_LIGHT;
+			btn->litColor = nvgRGB(0x5A, 0x1E, 0x1E);  // maroon family -- matches REST+LEGATO knob rings
 			addParam(btn);
 		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(152.02, 103.84)), module, SpacesCommand::DICE_TIME);
-			btn->unlitColor = nvgRGB(0x5A, 0x40, 0x18);  // brass/ochre family -- matches RATE+OCTAVES knob rings
+			btn->mod = module;
+			btn->lightId = SpacesCommand::TIME_FLASH_LIGHT;
+			btn->litColor = nvgRGB(0x5A, 0x40, 0x18);  // brass/ochre family -- matches RATE+OCTAVES knob rings
 			addParam(btn);
 		}
 		{
 			auto* btn = createParamCentered<SquareButton>(mm2px(Vec(165.02, 103.84)), module, SpacesCommand::DICE_NAVY);
-			btn->unlitColor = nvgRGB(0x1E, 0x30, 0x48);  // navy family -- matches ENTROPY+HARMONY+CHAOS knob rings
+			btn->mod = module;
+			btn->lightId = SpacesCommand::NAVY_FLASH_LIGHT;
+			btn->litColor = nvgRGB(0x1E, 0x30, 0x48);  // navy family -- matches ENTROPY+HARMONY+CHAOS knob rings
 			addParam(btn);
 		}
 		{
 			// OCT: one column-slot, split left/right into two half-width
 			// buttons -- matches keyboard octave-switch convention (down
 			// on the left, up on the right), not a circular dice bezel.
-			// Sets the UNFOCUSED scene's octave relative to the focused
-			// one (magnitude a surprise 0-3 octaves) -- see OCT_BIAS_DOWN/
-			// UP_PARAM and applyOctaveBias() in the module.
+			// Deterministic +-1 nudge to the UNFOCUSED scene's own octave
+			// per click (repeatable -- two "-" clicks = down two octaves
+			// from wherever it already was); see applyOctaveBias() in the
+			// module. Empty until pressed, then a brief flash like the
+			// randomize buttons beside it.
 			auto* down = createParamCentered<OctBiasButton>(mm2px(Vec(174.77, 103.84)), module, SpacesCommand::OCT_BIAS_DOWN_PARAM);
-			down->unlitColor = nvgRGB(0x5A, 0x40, 0x18);  // brass family -- same as TIME, since it shares OCTAVES' identity
+			down->mod = module;
+			down->lightId = SpacesCommand::OCT_DOWN_FLASH_LIGHT;
+			down->litColor = nvgRGB(0x5A, 0x40, 0x18);  // brass family -- same as TIME, since it shares OCTAVES' identity
 			down->letter = "-";
 			addParam(down);
 			auto* up = createParamCentered<OctBiasButton>(mm2px(Vec(181.27, 103.84)), module, SpacesCommand::OCT_BIAS_UP_PARAM);
-			up->unlitColor = nvgRGB(0x5A, 0x40, 0x18);
+			up->mod = module;
+			up->lightId = SpacesCommand::OCT_UP_FLASH_LIGHT;
+			up->litColor = nvgRGB(0x5A, 0x40, 0x18);
 			up->letter = "+";
 			addParam(up);
 		}
