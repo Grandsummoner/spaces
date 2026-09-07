@@ -1075,28 +1075,40 @@ struct VFaderHandle : ParamWidget {
 	}
 
 	void draw(const DrawArgs& args) override {
-		// Body: subtle top-to-bottom gradient for some dimensionality
-		// instead of flat black, plus a thin grip-ridge highlight -- a
-		// small aesthetic pass alongside embedding the LED below.
+		// F8R-inspired redesign: real slide-pot caps read as flat, matte
+		// plastic with a molded grip groove -- not a glossy 3D-shaded UI
+		// knob. Swapped the old wide-gradient body + single highlight
+		// line for a near-flat fill, a tighter corner radius (more
+		// slab-like), and a double-line molded groove instead of one
+		// thin highlight streak.
 		NVGpaint bodyGrad = nvgLinearGradient(args.vg, 0, 0, 0, box.size.y,
-			nvgRGBA(0x2C, 0x2C, 0x2E, 255), nvgRGBA(0x0A, 0x0A, 0x0C, 255));
+			nvgRGBA(0x26, 0x26, 0x28, 255), nvgRGBA(0x1C, 0x1C, 0x1E, 255));
 		nvgBeginPath(args.vg);
-		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 1.2f);
+		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 0.9f);
 		nvgFillPaint(args.vg, bodyGrad);
 		nvgFill(args.vg);
-		nvgStrokeColor(args.vg, nvgRGB(0x2A, 0x2A, 0x2A));
-		nvgStrokeWidth(args.vg, 0.9f);
+		nvgStrokeColor(args.vg, nvgRGBA(0x08, 0x08, 0x08, 200));
+		nvgStrokeWidth(args.vg, 0.6f);
 		nvgStroke(args.vg);
 
 		float cx = box.size.x / 2.f;
 		float ledY = box.size.y * 0.32f;
 
-		// Grip-ridge: thin highlight line, purely cosmetic.
+		// Molded grip groove: a thin dark line immediately followed by a
+		// faint light line just below it, faking a real indented groove
+		// rather than a painted-on highlight streak.
+		float grooveY = box.size.y * 0.64f;
 		nvgBeginPath(args.vg);
-		nvgMoveTo(args.vg, 1.2f, box.size.y * 0.62f);
-		nvgLineTo(args.vg, box.size.x - 1.2f, box.size.y * 0.62f);
-		nvgStrokeColor(args.vg, nvgRGBA(255, 255, 255, 22));
-		nvgStrokeWidth(args.vg, 0.6f);
+		nvgMoveTo(args.vg, 1.0f, grooveY);
+		nvgLineTo(args.vg, box.size.x - 1.0f, grooveY);
+		nvgStrokeColor(args.vg, nvgRGBA(0, 0, 0, 90));
+		nvgStrokeWidth(args.vg, 0.5f);
+		nvgStroke(args.vg);
+		nvgBeginPath(args.vg);
+		nvgMoveTo(args.vg, 1.0f, grooveY + 0.4f);
+		nvgLineTo(args.vg, box.size.x - 1.0f, grooveY + 0.4f);
+		nvgStrokeColor(args.vg, nvgRGBA(255, 255, 255, 16));
+		nvgStrokeWidth(args.vg, 0.4f);
 		nvgStroke(args.vg);
 
 		// Step-position LED, embedded directly in the cap -- replaces the
@@ -1283,70 +1295,70 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(fader);
 		}
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(36.72, 102.24)), module, SpacesCommand::FADER_PARAM + 1);
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(34.43, 102.24)), module, SpacesCommand::FADER_PARAM + 1);
 			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
 			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
-			fader->centerX = mm2px(Vec(36.72, 0)).x;
+			fader->centerX = mm2px(Vec(34.43, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[1];
 			fader->mod = module;
 			fader->lightId = SpacesCommand::STEP_LIGHTS + 1;
 			addParam(fader);
 		}
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(50.44, 102.24)), module, SpacesCommand::FADER_PARAM + 2);
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(45.86, 102.24)), module, SpacesCommand::FADER_PARAM + 2);
 			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
 			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
-			fader->centerX = mm2px(Vec(50.44, 0)).x;
+			fader->centerX = mm2px(Vec(45.86, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[2];
 			fader->mod = module;
 			fader->lightId = SpacesCommand::STEP_LIGHTS + 2;
 			addParam(fader);
 		}
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(64.15, 102.24)), module, SpacesCommand::FADER_PARAM + 3);
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(57.29, 102.24)), module, SpacesCommand::FADER_PARAM + 3);
 			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
 			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
-			fader->centerX = mm2px(Vec(64.15, 0)).x;
+			fader->centerX = mm2px(Vec(57.29, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[3];
 			fader->mod = module;
 			fader->lightId = SpacesCommand::STEP_LIGHTS + 3;
 			addParam(fader);
 		}
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(77.87, 102.24)), module, SpacesCommand::FADER_PARAM + 4);
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(68.71, 102.24)), module, SpacesCommand::FADER_PARAM + 4);
 			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
 			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
-			fader->centerX = mm2px(Vec(77.87, 0)).x;
+			fader->centerX = mm2px(Vec(68.71, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[4];
 			fader->mod = module;
 			fader->lightId = SpacesCommand::STEP_LIGHTS + 4;
 			addParam(fader);
 		}
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(91.59, 102.24)), module, SpacesCommand::FADER_PARAM + 5);
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(80.14, 102.24)), module, SpacesCommand::FADER_PARAM + 5);
 			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
 			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
-			fader->centerX = mm2px(Vec(91.59, 0)).x;
+			fader->centerX = mm2px(Vec(80.14, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[5];
 			fader->mod = module;
 			fader->lightId = SpacesCommand::STEP_LIGHTS + 5;
 			addParam(fader);
 		}
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(105.31, 102.24)), module, SpacesCommand::FADER_PARAM + 6);
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(91.57, 102.24)), module, SpacesCommand::FADER_PARAM + 6);
 			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
 			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
-			fader->centerX = mm2px(Vec(105.31, 0)).x;
+			fader->centerX = mm2px(Vec(91.57, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[6];
 			fader->mod = module;
 			fader->lightId = SpacesCommand::STEP_LIGHTS + 6;
 			addParam(fader);
 		}
 		{
-			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(119.03, 102.24)), module, SpacesCommand::FADER_PARAM + 7);
+			auto* fader = createParamCentered<VFaderHandle>(mm2px(Vec(103.0, 102.24)), module, SpacesCommand::FADER_PARAM + 7);
 			fader->trackY0Px = mm2px(Vec(0, 90.49)).y;  // inset by half the cap's own height (1.75mm) so the cap stays fully inside the drawn track at max value
 			fader->trackY1Px = mm2px(Vec(0, 113.99)).y;  // same inset at the bottom, min value
-			fader->centerX = mm2px(Vec(119.03, 0)).x;
+			fader->centerX = mm2px(Vec(103.0, 0)).x;
 			if (module) fader->displayValuePtr = &module->displayFaderValue[7];
 			fader->mod = module;
 			fader->lightId = SpacesCommand::STEP_LIGHTS + 7;
