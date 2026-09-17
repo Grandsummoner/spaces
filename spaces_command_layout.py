@@ -105,9 +105,22 @@ def txt(text, x, y, size, color, anchor="start", tracking=1.05):
 
 def add(s): svg.append(s)
 
-p, _ = txt("SPACES COMMAND", 8, 7.2, 4.4, TEXT_BRIGHT)
+# LINK lights: top-left/top-right corners, in the knurlie-screw position --
+# matches Stellar's exact treatment (same radius, same y, same ring) so
+# the two panels read as one family. Title text is pushed right to clear
+# the left one, same technique as Stellar's own title_x.
+LINK_R = 1.0
+link_l_cx, link_l_cy = x0 + LINK_R, 5.5
+link_r_cx, link_r_cy = PANEL_W - x0 - LINK_R, 5.5
+add(f'<circle cx="{link_l_cx}" cy="{link_l_cy}" r="{LINK_R}" fill="{NAVY}" opacity="0.85"/>')
+add(f'<circle cx="{link_l_cx}" cy="{link_l_cy}" r="{LINK_R+0.6}" fill="none" stroke="{BORDER}" stroke-width="0.3" opacity="0.4"/>')
+add(f'<circle cx="{link_r_cx}" cy="{link_r_cy}" r="{LINK_R}" fill="{NAVY}" opacity="0.85"/>')
+add(f'<circle cx="{link_r_cx}" cy="{link_r_cy}" r="{LINK_R+0.6}" fill="none" stroke="{BORDER}" stroke-width="0.3" opacity="0.4"/>')
+
+title_x = x0 + (LINK_R+0.6)*2 + 1.5
+p, _ = txt("SPACES COMMAND", title_x, 7.2, 4.4, TEXT_BRIGHT)
 add(p)
-p, _ = txt("dual-scene cv/gate sequencer", 8, 10.4, 1.9, TEXT_DIM)
+p, _ = txt("dual-scene cv/gate sequencer", title_x, 10.4, 1.9, TEXT_DIM)
 add(p)
 TITLE_H = 12.5
 

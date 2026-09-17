@@ -1,8 +1,8 @@
-# Spaces
+# Spaces Command
 
 VCV Rack plugin family, ported from [Navy Arp 2](https://github.com/Grandsummoner/navy-arp2) (JUCE VST3).
 
-## Spaces Command (implemented)
+## Overview
 
 Self-sufficient core instrument: 8-step probabilistic pattern sequencer with dual-scene
 (A/B) morphing and two built-in synth voices (Analog/FM/Supersaw/Pulse, non-exclusive
