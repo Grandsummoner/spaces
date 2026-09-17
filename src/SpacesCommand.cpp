@@ -450,8 +450,7 @@ struct SpacesCommand : Module {
 		}
 
 		// Clock-presence run logic: patched CLOCK drives steps (patching/
-		// unpatching IS start/stop); unpatched free-runs off RATE, gated
-		// by held notes / FREEZE, same as before.
+		// unpatching IS start/stop); unpatched free-runs off RATE.
 		bool clockPatched = inputs[CLOCK_INPUT].isConnected();
 		bool stepTriggered = false;
 		float swingParam = params[SWING_PARAM].getValue();
@@ -490,16 +489,11 @@ struct SpacesCommand : Module {
 				}
 			}
 		} else {
-			// Deliberate departure from source here: the original always
-			// gates on a held note (or FREEZE), because it's a MIDI
-			// arpeggiator built to be played from a keyboard. Command is a
-			// standalone eurorack sequencer now -- ARP mode still needs a
-			// held/latched note or FREEZE (it has nothing to arpeggiate
-			// without one), but SEQ mode never reads notesToPlay for pitch
-			// at all, so gating it on a held note was pure inherited VST
-			// behavior with no modular justification. SEQ mode now runs on
-			// CLOCK/free-run alone, unconditionally.
-			bool playing = arpSeqOnState ? (!notesToPlay.empty() || freezeOn) : true;
+			// Free-run timing itself is unconditional -- ARP/SEQ and V/OCT+
+			// GATE presence only decide below whether a triggered step is
+			// actually allowed to fire a note, not whether the clock keeps
+			// ticking. Keeping the accumulator running avoids drift/burst
+			// artifacts when note input comes and goes.
 			double bpm = 40.0 + rate01Eff * 200.0;  // matches original: 40-240 BPM free-run
 			double stepSamples = args.sampleRate * (60.0 / std::max(1.0, bpm)) * 0.25;
 			// Swing: matches original exactly -- even-indexed steps get
@@ -507,11 +501,22 @@ struct SpacesCommand : Module {
 			// the step interval.
 			double swingAmtSamples = 0.45 * swingParam * stepSamples;
 			double activeStepSamples = (currentStep % 2 == 0) ? stepSamples + swingAmtSamples : stepSamples - swingAmtSamples;
-			if (playing) {
-				phaseAccumSamples += 1.0;
-				if (phaseAccumSamples >= activeStepSamples) { phaseAccumSamples = 0.0; stepTriggered = true; }
-			}
+			phaseAccumSamples += 1.0;
+			if (phaseAccumSamples >= activeStepSamples) { phaseAccumSamples = 0.0; stepTriggered = true; }
 		}
+
+		// V/OCT+GATE presence overrides ARP and SEQ alike: the instant a
+		// real note source is patched into both jacks, Command's own
+		// playhead stops advancing on its own and instead requires an
+		// actual held note (or a latched/frozen one) to move forward --
+		// LATCH keeps it moving as long as a note was ever caught, and ARP
+		// still needs a note the same way it always did. Unplug either
+		// jack and the old always-running behavior (both CLOCK-patched and
+		// free-run) resumes immediately, unconditionally, exactly as
+		// before this feature existed.
+		bool notesPatched = inputs[VOCT_INPUT].isConnected() && inputs[GATE_INPUT].isConnected();
+		bool notesGate = !notesPatched || !notesToPlay.empty() || freezeOn;
+		if (!notesGate) stepTriggered = false;
 
 		// Track the real interval between steps (works for both free-run
 		// and external clock) so note-off timing can match the original's
