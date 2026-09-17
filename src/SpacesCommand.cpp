@@ -39,6 +39,7 @@ struct SpacesCommand : Module {
 		LATCH_LIGHT, ARPSEQ_LIGHT, STRUM_LIGHT, FREEZE_LIGHT, ROUTING_LIGHT,
 		MELO_FLASH_LIGHT, ARTI_FLASH_LIGHT, TIME_FLASH_LIGHT, NAVY_FLASH_LIGHT,
 		OCT_DOWN_FLASH_LIGHT, OCT_UP_FLASH_LIGHT,
+		LINK_LEFT_LIGHT, LINK_RIGHT_LIGHT,
 		LIGHTS_LEN
 	};
 
@@ -351,6 +352,18 @@ struct SpacesCommand : Module {
 		lights[NAVY_FLASH_LIGHT].setBrightness(navyFlash > 0 ? 1.f : 0.f);
 		lights[OCT_DOWN_FLASH_LIGHT].setBrightness(octDownFlash > 0 ? 1.f : 0.f);
 		lights[OCT_UP_FLASH_LIGHT].setBrightness(octUpFlash > 0 ? 1.f : 0.f);
+
+		// LINK lights: pure adjacency detection by plugin/model slug
+		// strings (Command and Stellar are separate compiled plugins, no
+		// shared C++ symbol to compare against directly) -- symmetric to
+		// Stellar's own check for Command. No message exchange
+		// implemented on either side yet, so this is intentionally just
+		// a presence light, not a functional data link.
+		auto isStellar = [](Module* m) {
+			return m && m->model && m->model->plugin && m->model->plugin->slug == "Stellar" && m->model->slug == "Stellar";
+		};
+		lights[LINK_LEFT_LIGHT].setBrightness(isStellar(leftExpander.module) ? 1.f : 0.f);
+		lights[LINK_RIGHT_LIGHT].setBrightness(isStellar(rightExpander.module) ? 1.f : 0.f);
 
 		captureFocusedScene();
 
@@ -1173,6 +1186,9 @@ struct SpacesCommandWidget : ModuleWidget {
 	SpacesCommandWidget(SpacesCommand* module) {
 		setModule(module);
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/SpacesCommand.svg")));
+
+		addChild(createLightCentered<SmallLight<BlueLight>>(mm2px(Vec(7.0, 5.5)), module, SpacesCommand::LINK_LEFT_LIGHT));
+		addChild(createLightCentered<SmallLight<BlueLight>>(mm2px(Vec(186.0, 5.5)), module, SpacesCommand::LINK_RIGHT_LIGHT));
 
 // I/O
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.4, 19.2)), module, SpacesCommand::CLOCK_INPUT));
