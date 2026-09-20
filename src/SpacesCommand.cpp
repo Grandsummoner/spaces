@@ -1,4 +1,5 @@
 #include "plugin.hpp"
+#include "IntelLink.hpp"
 #include <cmath>
 #include <vector>
 #include <algorithm>
@@ -136,8 +137,19 @@ struct SpacesCommand : Module {
 	dsp::SchmittTrigger latchTrig, arpSeqTrig, strumTrig, freezeTrig, routingTrig;
 	dsp::SchmittTrigger octBiasDownTrig, octBiasUpTrig;
 
+	// Message buffers for the Intel link -- allocated here (not by Intel)
+	// because the sending convention is "write into the NEIGHBOR's own
+	// producer buffer", so Command has to own valid memory on both sides
+	// for Intel to reach into, even though Command itself never sends
+	// anything useful back through them.
+	IntelModMessage leftIntelProducer, leftIntelConsumer, rightIntelProducer, rightIntelConsumer;
+
 	SpacesCommand() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
+		leftExpander.producerMessage = &leftIntelProducer;
+		leftExpander.consumerMessage = &leftIntelConsumer;
+		rightExpander.producerMessage = &rightIntelProducer;
+		rightExpander.consumerMessage = &rightIntelConsumer;
 		for (int i = 0; i < 8; i++)
 			configParam(FADER_PARAM + i, 0.f, 1.f, 1.f, string::f("Step %d probability", i + 1), "%", 0, 100);
 		configButton(MELO_PARAM, "Randomize pattern (MELO)");
@@ -365,6 +377,24 @@ struct SpacesCommand : Module {
 		lights[LINK_LEFT_LIGHT].setBrightness(isStellar(leftExpander.module) ? 1.f : 0.f);
 		lights[LINK_RIGHT_LIGHT].setBrightness(isStellar(rightExpander.module) ? 1.f : 0.f);
 
+		// Intel link: fully invisible (no jacks, no panel change) --
+		// Intel writes modulation offsets directly into whichever of our
+		// own producer buffers faces it, then flags our matching expander
+		// for flip; we read our own consumerMessage here, one frame later.
+		// Command applies its own floor protection below, since only
+		// Command actually knows what "silent" means for its own
+		// RATE/DENSITY/SWING/ENTROPY ranges -- Intel just sends a bounded
+		// offset either way.
+		auto isIntel = [](Module* m) {
+			return m && m->model && m->model->plugin && m->model->plugin->slug == "Intel" && m->model->slug == "Intel";
+		};
+		IntelModMessage intelMsg;
+		if (isIntel(leftExpander.module)) {
+			intelMsg = *(IntelModMessage*)leftExpander.consumerMessage;
+		} else if (isIntel(rightExpander.module)) {
+			intelMsg = *(IntelModMessage*)rightExpander.consumerMessage;
+		}
+
 		captureFocusedScene();
 
 		float morph = params[MORPH_PARAM].getValue();
@@ -429,6 +459,11 @@ struct SpacesCommand : Module {
 		float morphEff = freezeOn ? frozenMorph : morph;
 		float entropyEff = crossfade(effA.entropy, effB.entropy, morphEff);  // RATE/ENTROPY: always shared, one engine
 		float rate01Eff = crossfade(effA.rate, effB.rate, morphEff);
+		// Intel link (invisible, no jacks): RATE gets a floor so modulation
+		// can never push the sequencer down into an effectively-stalled
+		// crawl; ENTROPY has no silence risk, just clamped to its own range.
+		rate01Eff = clamp(rate01Eff + intelMsg.rateOffset * 0.3f, 0.18f, 1.f);
+		entropyEff = clamp(entropyEff + intelMsg.entropyOffset, -1.f, 1.f);
 		std::vector<int>& notesToPlay = freezeOn
 			? (latchOn ? frozenLatchedNotes : frozenHeldNotes)
 			: (latchOn ? latchedNotes : heldNotes);
@@ -453,7 +488,7 @@ struct SpacesCommand : Module {
 		// unpatching IS start/stop); unpatched free-runs off RATE.
 		bool clockPatched = inputs[CLOCK_INPUT].isConnected();
 		bool stepTriggered = false;
-		float swingParam = params[SWING_PARAM].getValue();
+		float swingParam = clamp(params[SWING_PARAM].getValue() + intelMsg.swingOffset * 0.5f, 0.f, 1.f);
 
 		if (clockPatched) {
 			bool rawClockEdge = clockTrig.process(inputs[CLOCK_INPUT].getVoltage());
@@ -581,7 +616,10 @@ struct SpacesCommand : Module {
 			// the same gap for the CLOCK-patched path, where steps always
 			// fire regardless of held notes).
 			bool arpNeedsNotes = arpSeqOnState && notesToPlay.empty() && !freezeOn;
-			float density = params[DENSITY_PARAM].getValue();
+			// Intel link: DENSITY gets the same floor treatment as RATE --
+			// modulation can thin the pattern out but never push it to
+			// "never triggers".
+			float density = clamp(params[DENSITY_PARAM].getValue() + intelMsg.densOffset * 0.4f, 0.15f, 1.f);
 
 			// External velocity (MIDI-CV, via VELOCITY_INPUT): ARP mode
 			// matches the exact note index that's about to play; SEQ mode
