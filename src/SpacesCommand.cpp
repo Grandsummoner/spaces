@@ -374,8 +374,11 @@ struct SpacesCommand : Module {
 		auto isStellar = [](Module* m) {
 			return m && m->model && m->model->plugin && m->model->plugin->slug == "Stellar" && m->model->slug == "Stellar";
 		};
-		lights[LINK_LEFT_LIGHT].setBrightness(isStellar(leftExpander.module) ? 1.f : 0.f);
-		lights[LINK_RIGHT_LIGHT].setBrightness(isStellar(rightExpander.module) ? 1.f : 0.f);
+		auto isIntel = [](Module* m) {
+			return m && m->model && m->model->plugin && m->model->plugin->slug == "Intel" && m->model->slug == "Intel";
+		};
+		lights[LINK_LEFT_LIGHT].setBrightness(isStellar(leftExpander.module) || isIntel(leftExpander.module) ? 1.f : 0.f);
+		lights[LINK_RIGHT_LIGHT].setBrightness(isStellar(rightExpander.module) || isIntel(rightExpander.module) ? 1.f : 0.f);
 
 		// Intel link: fully invisible (no jacks, no panel change) --
 		// Intel writes modulation offsets directly into whichever of our
@@ -385,9 +388,6 @@ struct SpacesCommand : Module {
 		// Command actually knows what "silent" means for its own
 		// RATE/DENSITY/SWING/ENTROPY ranges -- Intel just sends a bounded
 		// offset either way.
-		auto isIntel = [](Module* m) {
-			return m && m->model && m->model->plugin && m->model->plugin->slug == "Intel" && m->model->slug == "Intel";
-		};
 		IntelModMessage intelMsg;
 		if (isIntel(leftExpander.module)) {
 			intelMsg = *(IntelModMessage*)leftExpander.consumerMessage;
