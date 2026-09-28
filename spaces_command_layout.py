@@ -334,13 +334,30 @@ box_x0 = cluster_x0 + (cluster_w - box_w)/2
 box_y0 = sy + (sh - box_h)/2   # center the whole DICE box within the PATTERN row, like every other row
 
 add(f'<rect x="{box_x0}" y="{box_y0}" width="{box_w}" height="{box_h}" rx="1.5" fill="{SLOT}" opacity="0.6" stroke="{BORDER}" stroke-width="0.3" stroke-opacity="0.6"/>')
-p, _ = txt("RANDOM", box_x0 + box_w/2, box_y0 + title_h - 1.0, 2.2, TEXT_DIM, anchor="middle")
+
+row_x0 = box_x0 + box_pad
+
+# "RANDOM" now titles only the 4 actual randomize-dice buttons (MELO/ARTI/
+# TIME/NAVY) -- OCT was never a random trigger (it's a deterministic +-1
+# nudge, see applyOctaveBias()), so grouping it under "RANDOM" was
+# misleading. Centered over cols 0-3 only, not the full 5-column box.
+random_cx = row_x0 + col_w/2 + 1.5 * (col_w + col_gap)
+p, _ = txt("RANDOM", random_cx, box_y0 + title_h - 1.0, 2.2, TEXT_DIM, anchor="middle")
+add(p)
+
+# OCT's own header, in the space that frees up above it now that it's no
+# longer sharing "RANDOM" -- clarifies which scene the +-1 nudge actually
+# affects (the one that's NOT currently focused/lit), two lines to fit
+# the single column's width.
+oct_header_cx = row_x0 + col_w/2 + 4 * (col_w + col_gap)
+p, _ = txt("OCTAVE", oct_header_cx, box_y0 + 2.4, 1.7, TEXT_DIM, anchor="middle")
+add(p)
+p, _ = txt("(UNLIT SCENE)", oct_header_cx, box_y0 + title_h - 0.6, 1.1, TEXT_DIM, anchor="middle")
 add(p)
 
 dice_y = box_y0 + title_h + gap1 + R["bezel_big"]
 label_y_dice = dice_y + R["bezel_big"] + gap2 + label_h_dice
 
-row_x0 = box_x0 + box_pad
 for i, (nm, pnm) in enumerate(zip(rand_names, rand_params)):
     col_cx = row_x0 + col_w/2 + i*(col_w + col_gap)
     micro(nm, col_cx, label_y_dice, size=1.5)

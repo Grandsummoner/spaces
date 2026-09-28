@@ -14,6 +14,14 @@ struct IntelModMessage {
 	float densOffset = 0.f;
 	float swingOffset = 0.f;
 	float entropyOffset = 0.f;
+	// Static DEPTH-setting level per channel, 0 (no LFO) to 1 (max LFO) --
+	// i.e. depthState/3, NOT the live oscillating value above. Command's
+	// optional depth-gauge display reads these; actual modulation
+	// application still uses the *Offset fields.
+	float rateDepth = 0.f;
+	float densDepth = 0.f;
+	float swingDepth = 0.f;
+	float entropyDepth = 0.f;
 	// True whenever Intel is actually present and sending -- lets Command
 	// tell "adjacent but message not yet flipped this frame" apart from
 	// "no Intel here", though in practice the adjacency check on Command's

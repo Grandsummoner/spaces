@@ -143,6 +143,12 @@ struct SpacesCommand : Module {
 	// for Intel to reach into, even though Command itself never sends
 	// anything useful back through them.
 	IntelModMessage leftIntelProducer, leftIntelConsumer, rightIntelProducer, rightIntelConsumer;
+	// Depth-gauge display state (v5, direct request) -- mirrors whatever
+	// intelMsg said this frame, so ModDepthArc widgets can read it in
+	// their own draw() calls without touching the expander machinery
+	// themselves. Index order: rate, dens, swing, entropy.
+	bool intelPresent = false;
+	float intelDepthGauge[4] = {0.f, 0.f, 0.f, 0.f};
 
 	SpacesCommand() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -380,20 +386,26 @@ struct SpacesCommand : Module {
 		lights[LINK_LEFT_LIGHT].setBrightness(isStellar(leftExpander.module) || isIntel(leftExpander.module) ? 1.f : 0.f);
 		lights[LINK_RIGHT_LIGHT].setBrightness(isStellar(rightExpander.module) || isIntel(rightExpander.module) ? 1.f : 0.f);
 
-		// Intel link: fully invisible (no jacks, no panel change) --
-		// Intel writes modulation offsets directly into whichever of our
-		// own producer buffers faces it, then flags our matching expander
-		// for flip; we read our own consumerMessage here, one frame later.
-		// Command applies its own floor protection below, since only
-		// Command actually knows what "silent" means for its own
-		// RATE/DENSITY/SWING/ENTROPY ranges -- Intel just sends a bounded
-		// offset either way.
+		// Intel link: Intel writes modulation offsets directly into
+		// whichever of our own producer buffers faces it, then flags our
+		// matching expander for flip; we read our own consumerMessage
+		// here, one frame later. Command applies its own floor
+		// protection below, since only Command actually knows what
+		// "silent" means for its own RATE/DENSITY/SWING/ENTROPY ranges --
+		// Intel just sends a bounded offset either way. (v5: no longer
+		// fully invisible -- see intelDepthGauge below, read by
+		// ModDepthArc for the new depth-gauge display.)
 		IntelModMessage intelMsg;
 		if (isIntel(leftExpander.module)) {
 			intelMsg = *(IntelModMessage*)leftExpander.consumerMessage;
 		} else if (isIntel(rightExpander.module)) {
 			intelMsg = *(IntelModMessage*)rightExpander.consumerMessage;
 		}
+		intelPresent = intelMsg.present;
+		intelDepthGauge[0] = intelMsg.rateDepth;
+		intelDepthGauge[1] = intelMsg.densDepth;
+		intelDepthGauge[2] = intelMsg.swingDepth;
+		intelDepthGauge[3] = intelMsg.entropyDepth;
 
 		captureFocusedScene();
 
@@ -1089,9 +1101,37 @@ struct SquareButton : ParamWidget {
 // column-slot in the DICE/RANDOM cluster, rendered as two adjacent
 // halves rather than a single square) -- same drawing/letter logic,
 // just narrower.
+// The +/- symbol is drawn as simple vector strokes rather than through
+// SquareButton's font-glyph `letter` text (which wasn't actually
+// appearing in real Rack on this particular narrow half-width button --
+// root cause unconfirmed, but a hand-drawn stroke sidesteps font/glyph
+// rendering entirely and is guaranteed to show regardless).
 struct OctBiasButton : SquareButton {
+	bool isPlus = false;  // false draws '-', true draws '+'
+
 	OctBiasButton() {
 		box.size = mm2px(Vec(5.5, 6.5));
+	}
+
+	void draw(const DrawArgs& args) override {
+		SquareButton::draw(args);  // body/border only -- letter left empty
+		bool lit = false;
+		if (mod && lightId >= 0) lit = mod->lights[lightId].getBrightness() > 0.5f;
+		NVGcolor strokeColor = lit ? litLetterColor : unlitLetterColor;
+		float cx = box.size.x / 2.f;
+		float cy = box.size.y / 2.f;
+		float arm = box.size.y * 0.22f;  // half-length of each stroke arm
+		nvgBeginPath(args.vg);
+		nvgMoveTo(args.vg, cx - arm, cy);
+		nvgLineTo(args.vg, cx + arm, cy);
+		if (isPlus) {
+			nvgMoveTo(args.vg, cx, cy - arm);
+			nvgLineTo(args.vg, cx, cy + arm);
+		}
+		nvgStrokeColor(args.vg, strokeColor);
+		nvgStrokeWidth(args.vg, mm2px(Vec(0.7f, 0.f)).x);
+		nvgLineCap(args.vg, NVG_ROUND);
+		nvgStroke(args.vg);
 	}
 };
 
@@ -1225,10 +1265,70 @@ struct VFaderHandle : ParamWidget {
 	}
 };
 
+// Subtle modulation-depth gauge (v5, direct request) -- draws a colored
+// arc around one of the 4 knobs Intel can modulate (RATE/ENTROPY/DENS/
+// SWING), filling from that knob's own needle start position (lower-
+// left) through to its end position (lower-right, over the top) as
+// Intel's DEPTH setting for that channel goes from 0 (no LFO) to 3 (max
+// LFO) -- matches MorphKnob's and stock Trimpot's identical -0.75pi to
+// +0.75pi sweep exactly (see MorphKnob::draw above), rather than an
+// arbitrary full-circle gauge unrelated to how the knob itself rotates.
+// Kept deliberately subtle/non-gaudy: a thin stroke on the knob's own
+// existing ring-guide radius, not a filled wedge, and fully invisible
+// whenever Intel isn't actually adjacent and sending -- this is the one
+// deliberate exception to the original "no panel change from Intel"
+// design, added by direct request; see intelPresent/intelDepthGauge on
+// the Module above.
+struct ModDepthArc : Widget {
+	Module* mod = nullptr;
+	int channel = 0; // 0=rate, 1=dens, 2=swing, 3=entropy
+	NVGcolor color;
+	float radius = 0.f;
+
+	// Same knob-angle convention as MorphKnob (0 = 12 o'clock, positive =
+	// clockwise) -- converted below to nvgArc's own angle convention
+	// (0 = 3 o'clock, positive = clockwise) via a -pi/2 rotation.
+	static constexpr float KNOB_MIN_ANGLE = -0.75f * (float)M_PI;
+	static constexpr float KNOB_MAX_ANGLE = 0.75f * (float)M_PI;
+
+	void draw(const DrawArgs& args) override {
+		auto* m = dynamic_cast<SpacesCommand*>(mod);
+		if (!m || !m->intelPresent) return;
+		float frac = clamp(m->intelDepthGauge[channel], 0.f, 1.f);
+		if (frac <= 0.001f) return;
+		float cx = box.size.x / 2.f;
+		float cy = box.size.y / 2.f;
+		float startAngle = KNOB_MIN_ANGLE - (float)M_PI / 2.f;
+		float endAngle = startAngle + frac * (KNOB_MAX_ANGLE - KNOB_MIN_ANGLE);
+		nvgBeginPath(args.vg);
+		nvgArc(args.vg, cx, cy, radius, startAngle, endAngle, NVG_CW);
+		nvgStrokeColor(args.vg, color);
+		nvgStrokeWidth(args.vg, mm2px(Vec(1.0f, 0.f)).x);
+		nvgLineCap(args.vg, NVG_ROUND);
+		nvgStroke(args.vg);
+	}
+};
+
 struct SpacesCommandWidget : ModuleWidget {
 	SpacesCommandWidget(SpacesCommand* module) {
 		setModule(module);
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/SpacesCommand.svg")));
+
+		// (v5) Intel depth-gauge helper -- adds a ModDepthArc centered on
+		// (x,y), sized to the given radius (mm), for the given channel/
+		// color. Used on the 4 knobs Intel can modulate (RATE/ENTROPY/
+		// DENS/SWING), right after each knob's own addParam below.
+		auto addDepthArc = [&](float x, float y, float radiusMm, int channel, NVGcolor color) {
+			auto* arc = new ModDepthArc();
+			arc->mod = module;
+			arc->channel = channel;
+			arc->color = color;
+			float rPx = mm2px(Vec(radiusMm, 0.f)).x;
+			arc->radius = rPx;
+			arc->box.size = Vec(rPx * 2.f, rPx * 2.f);
+			arc->box.pos = mm2px(Vec(x, y)).minus(Vec(rPx, rPx));
+			addChild(arc);
+		};
 
 		addChild(createLightCentered<SmallLight<BlueLight>>(mm2px(Vec(7.0, 5.5)), module, SpacesCommand::LINK_LEFT_LIGHT));
 		addChild(createLightCentered<SmallLight<BlueLight>>(mm2px(Vec(186.0, 5.5)), module, SpacesCommand::LINK_RIGHT_LIGHT));
@@ -1264,11 +1364,13 @@ struct SpacesCommandWidget : ModuleWidget {
 			k->numTicks = 9;  // decorative reference marks (too many BPM steps to tick individually)
 			addParam(k);
 		}
+		addDepthArc(49.54, 45.02, 5.318f, 0, nvgRGB(0x8A, 0x64, 0x23));  // rate -- brass
 		{
 			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(63.81, 45.02)), module, SpacesCommand::ENTROPY_PARAM);
 			if (module) k->displayValuePtr = &module->displayEntropy;
 			addParam(k);
 		}
+		addDepthArc(63.81, 45.02, 5.318f, 3, nvgRGB(0x6B, 0x4C, 0x8A));  // entropy -- plum
 		{
 			auto* k = createParamCentered<MorphKnob>(mm2px(Vec(78.08, 45.02)), module, SpacesCommand::HARMONY_PARAM);
 			if (module) k->displayValuePtr = &module->displayHarmony;
@@ -1369,7 +1471,9 @@ struct SpacesCommandWidget : ModuleWidget {
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(140.74, 69.04)), module, SpacesCommand::ROOT_KEY_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(154.18, 69.04)), module, SpacesCommand::SCALE_TYPE_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(167.61, 69.04)), module, SpacesCommand::DENSITY_PARAM));
+		addDepthArc(167.61, 69.04, 4.109f, 1, nvgRGB(0x8A, 0x2A, 0x2A));  // dens -- maroon
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(181.04, 69.04)), module, SpacesCommand::SWING_PARAM));
+		addDepthArc(181.04, 69.04, 4.109f, 2, nvgRGB(0x2E, 0x4A, 0x6E));  // swing -- navy
 
 		// PATTERN: custom vertical faders (live scene-morph display), each
 		// with its step-position LED embedded directly in the cap (see
@@ -1500,13 +1604,13 @@ struct SpacesCommandWidget : ModuleWidget {
 			down->mod = module;
 			down->lightId = SpacesCommand::OCT_DOWN_FLASH_LIGHT;
 			down->litColor = nvgRGB(0x5A, 0x40, 0x18);  // brass family -- same as TIME, since it shares OCTAVES' identity
-			down->letter = "-";
+			down->isPlus = false;
 			addParam(down);
 			auto* up = createParamCentered<OctBiasButton>(mm2px(Vec(181.27, 103.84)), module, SpacesCommand::OCT_BIAS_UP_PARAM);
 			up->mod = module;
 			up->lightId = SpacesCommand::OCT_UP_FLASH_LIGHT;
 			up->litColor = nvgRGB(0x5A, 0x40, 0x18);
-			up->letter = "+";
+			up->isPlus = true;
 			addParam(up);
 		}
 
