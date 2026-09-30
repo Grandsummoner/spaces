@@ -143,10 +143,12 @@ struct SpacesCommand : Module {
 	// for Intel to reach into, even though Command itself never sends
 	// anything useful back through them.
 	IntelModMessage leftIntelProducer, leftIntelConsumer, rightIntelProducer, rightIntelConsumer;
-	// Depth-gauge display state (v5, direct request) -- mirrors whatever
+	// Depth-gauge display state (v5, animated in v6) -- mirrors whatever
 	// intelMsg said this frame, so ModDepthArc widgets can read it in
 	// their own draw() calls without touching the expander machinery
-	// themselves. Index order: rate, dens, swing, entropy.
+	// themselves. Index order: rate, dens, swing, entropy. Despite the
+	// name, this is now the LIVE normalized |offset| (breathes with the
+	// running LFO), not the static DEPTH setting -- see process().
 	bool intelPresent = false;
 	float intelDepthGauge[4] = {0.f, 0.f, 0.f, 0.f};
 
@@ -405,10 +407,17 @@ struct SpacesCommand : Module {
 			intelMsg = *(IntelModMessage*)rightExpander.consumerMessage;
 		}
 		intelPresent = intelMsg.present;
-		intelDepthGauge[0] = intelMsg.rateDepth;
-		intelDepthGauge[1] = intelMsg.densDepth;
-		intelDepthGauge[2] = intelMsg.swingDepth;
-		intelDepthGauge[3] = intelMsg.entropyDepth;
+		// (v6) Live-animated, not the static DEPTH setting: use the
+		// actual oscillating offset Intel is already sending for real
+		// modulation, normalized against Intel's fixed max depth (0.6,
+		// matches LfoChannel::modDepth[3] there exactly) so the gauge
+		// genuinely breathes in and out with the live LFO -- fuller
+		// swings at higher DEPTH settings, flat/still at DEPTH 0.
+		constexpr float kIntelMaxDepth = 0.6f;
+		intelDepthGauge[0] = clamp(std::fabs(intelMsg.rateOffset) / kIntelMaxDepth, 0.f, 1.f);
+		intelDepthGauge[1] = clamp(std::fabs(intelMsg.densOffset) / kIntelMaxDepth, 0.f, 1.f);
+		intelDepthGauge[2] = clamp(std::fabs(intelMsg.swingOffset) / kIntelMaxDepth, 0.f, 1.f);
+		intelDepthGauge[3] = clamp(std::fabs(intelMsg.entropyOffset) / kIntelMaxDepth, 0.f, 1.f);
 
 		captureFocusedScene();
 
@@ -1268,19 +1277,22 @@ struct VFaderHandle : ParamWidget {
 	}
 };
 
-// Subtle modulation-depth gauge (v5, direct request) -- draws a colored
-// arc around one of the 4 knobs Intel can modulate (RATE/ENTROPY/DENS/
-// SWING), filling from that knob's own needle start position (lower-
-// left) through to its end position (lower-right, over the top) as
-// Intel's DEPTH setting for that channel goes from 0 (no LFO) to 3 (max
-// LFO) -- matches MorphKnob's and stock Trimpot's identical -0.75pi to
-// +0.75pi sweep exactly (see MorphKnob::draw above), rather than an
-// arbitrary full-circle gauge unrelated to how the knob itself rotates.
-// Kept deliberately subtle/non-gaudy: a thin stroke on the knob's own
-// existing ring-guide radius, not a filled wedge, and fully invisible
-// whenever Intel isn't actually adjacent and sending -- this is the one
-// deliberate exception to the original "no panel change from Intel"
-// design, added by direct request; see intelPresent/intelDepthGauge on
+// Subtle modulation-depth gauge (v5, animated live in v6) -- draws a
+// colored arc around one of the 4 knobs Intel can modulate (RATE/
+// ENTROPY/DENS/SWING), filling from that knob's own needle start
+// position (lower-left) through to its end position (lower-right, over
+// the top) as Intel's LIVE modulation offset for that channel swings
+// from 0 up toward its depth-scaled peak and back -- a continuously
+// breathing gauge in sync with the actual running LFO, not a static
+// depth-setting readout. Matches MorphKnob's and stock Trimpot's
+// identical -0.75pi to +0.75pi sweep exactly (see MorphKnob::draw
+// above), rather than an arbitrary full-circle gauge unrelated to how
+// the knob itself rotates. Kept deliberately subtle/non-gaudy: a thin
+// stroke on the knob's own existing ring-guide radius, not a filled
+// wedge, and fully invisible whenever Intel isn't actually connected
+// (see intelLinkFind) -- this is the one deliberate exception to the
+// original "no panel change from Intel" design, added by direct
+// request; see intelPresent/intelDepthGauge on
 // the Module above.
 struct ModDepthArc : Widget {
 	Module* mod = nullptr;
