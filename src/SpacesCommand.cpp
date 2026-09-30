@@ -396,9 +396,12 @@ struct SpacesCommand : Module {
 		// fully invisible -- see intelDepthGauge below, read by
 		// ModDepthArc for the new depth-gauge display.)
 		IntelModMessage intelMsg;
-		if (isIntel(leftExpander.module)) {
+		// Intel may be anywhere along the contiguous row of modules on
+		// either side (Stellar etc. can sit in between); Intel writes into
+		// the buffer on whichever of our sides faces it.
+		if (intelLinkFind(this, false, "Intel")) {
 			intelMsg = *(IntelModMessage*)leftExpander.consumerMessage;
-		} else if (isIntel(rightExpander.module)) {
+		} else if (intelLinkFind(this, true, "Intel")) {
 			intelMsg = *(IntelModMessage*)rightExpander.consumerMessage;
 		}
 		intelPresent = intelMsg.present;

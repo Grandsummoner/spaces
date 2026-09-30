@@ -1,4 +1,5 @@
 #pragma once
+#include <rack.hpp>
 // Shared message layout for the invisible Intel <-> Command expander link.
 // This exact struct definition is duplicated verbatim in both the Intel and
 // Spaces (Command) repos -- they're separate plugin binaries, so there's no
@@ -28,3 +29,19 @@ struct IntelModMessage {
 	// side (model slug match) already covers most of that distinction.
 	bool present = false;
 };
+
+// Finds the nearest module with the given plugin/model slug by walking
+// outward from `self` in one direction (right = true, else left) through
+// the contiguous row of adjacent modules -- so the link works with other
+// modules (Stellar, etc.) sitting in between, not just immediate
+// neighbors. Stops at the first gap in the row. Also identical in both
+// repos' copies of this file.
+inline rack::engine::Module* intelLinkFind(rack::engine::Module* self, bool right, const char* slug) {
+	rack::engine::Module* m = right ? self->rightExpander.module : self->leftExpander.module;
+	for (int hops = 0; m && hops < 32; hops++) {
+		if (m->model && m->model->plugin && m->model->plugin->slug == slug && m->model->slug == slug)
+			return m;
+		m = right ? m->rightExpander.module : m->leftExpander.module;
+	}
+	return nullptr;
+}
