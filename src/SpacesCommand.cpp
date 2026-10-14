@@ -385,8 +385,14 @@ struct SpacesCommand : Module {
 		auto isIntel = [](Module* m) {
 			return m && m->model && m->model->plugin && m->model->plugin->slug == "Intel" && m->model->slug == "Intel";
 		};
-		lights[LINK_LEFT_LIGHT].setBrightness(isStellar(leftExpander.module) || isIntel(leftExpander.module) ? 1.f : 0.f);
-		lights[LINK_RIGHT_LIGHT].setBrightness(isStellar(rightExpander.module) || isIntel(rightExpander.module) ? 1.f : 0.f);
+		// Beams: light-only, same as Stellar above -- Command has no
+		// functional link to Beams (Beams only talks to Intel), this
+		// just recognizes it as a family member sitting adjacent.
+		auto isBeams = [](Module* m) {
+			return m && m->model && m->model->plugin && m->model->plugin->slug == "Beams" && m->model->slug == "Beams";
+		};
+		lights[LINK_LEFT_LIGHT].setBrightness(isStellar(leftExpander.module) || isIntel(leftExpander.module) || isBeams(leftExpander.module) ? 1.f : 0.f);
+		lights[LINK_RIGHT_LIGHT].setBrightness(isStellar(rightExpander.module) || isIntel(rightExpander.module) || isBeams(rightExpander.module) ? 1.f : 0.f);
 
 		// Intel link: Intel writes modulation offsets directly into
 		// whichever of our own producer buffers faces it, then flags our
