@@ -31,6 +31,7 @@ struct SpacesCommand : Module {
 		ENTROPY_PARAM, HARMONY_PARAM, CHAOS_PARAM, DICE_NAVY, OCTAVES_PARAM,
 		OCT_BIAS_DOWN_PARAM, OCT_BIAS_UP_PARAM,
 		ROOT_KEY_PARAM, SCALE_TYPE_PARAM, DENSITY_PARAM, SWING_PARAM,
+		AUTO_MODE_PARAM, AUTO_SPEED_PARAM,   // (v6) scene-crossfade automation buttons
 		PARAMS_LEN
 	};
 	enum InputId { VOCT_INPUT, GATE_INPUT, VELOCITY_INPUT, CLOCK_INPUT, RESET_INPUT, INPUTS_LEN };
@@ -41,6 +42,7 @@ struct SpacesCommand : Module {
 		MELO_FLASH_LIGHT, ARTI_FLASH_LIGHT, TIME_FLASH_LIGHT, NAVY_FLASH_LIGHT,
 		OCT_DOWN_FLASH_LIGHT, OCT_UP_FLASH_LIGHT,
 		LINK_LEFT_LIGHT, LINK_RIGHT_LIGHT,
+		AUTO_SPEED_LIGHT,
 		LIGHTS_LEN
 	};
 
@@ -137,6 +139,30 @@ struct SpacesCommand : Module {
 	dsp::SchmittTrigger latchTrig, arpSeqTrig, strumTrig, freezeTrig, routingTrig;
 	dsp::SchmittTrigger octBiasDownTrig, octBiasUpTrig;
 
+	// ---- AUTO: slow automation of the scene crossfader (MORPH) ----
+	// autoMode: 0 ONE-OFF (runs to the nearest end and stays; the next
+	// SPEED press sends it to the other end), 1 PING-PONG (loops between
+	// the two ends), 2 WALK (random walk, lingers), 3 ROAM (random
+	// targets, mostly inside the 30-70% sweet zone). autoSpeed: 0 off,
+	// 1..4 = full A->B trip in ~240s / 60s / 15s / 4s.
+	// MORPH itself stays the source of truth: AUTO only nudges the same
+	// param the fader edits, so grabbing the fader always wins (AUTO
+	// pauses ~0.4s after any outside change and carries on from there),
+	// and FREEZE pauses it entirely.
+	int autoMode = 0, autoSpeed = 0;
+	dsp::SchmittTrigger autoModeTrig, autoSpeedTrig;
+	float autoLastWritten = -1.f;
+	double autoAcc = 0.0;            // high-precision position: at 240s/trip a float step (~9e-8) is below float resolution near 1.0
+	float autoHold = 0.f;            // seconds of "hand wins" pause remaining
+	bool autoTripActive = false;     // ONE-OFF: a trip is in progress
+	float autoTarget = 1.f;          // ONE-OFF target end / ROAM target
+	float autoDir = 1.f;             // PING-PONG direction
+	float autoDwell = 0.f;           // PING-PONG pause at an end
+	float autoSegTimer = 0.f;        // WALK segment timer
+	float autoVel = 0.f, autoVelCur = 0.f;  // WALK target / smoothed velocity (trips per second, signed)
+	float autoRoamFrom = 0.f, autoRoamT = 1.f, autoRoamDur = 1.f, autoRoamHold = 0.f;
+	static constexpr float kAutoTripSec[5] = {0.f, 240.f, 60.f, 15.f, 4.f};
+
 	// Message buffers for the Intel link -- allocated here (not by Intel)
 	// because the sending convention is "write into the NEIGHBOR's own
 	// producer buffer", so Command has to own valid memory on both sides
@@ -164,6 +190,8 @@ struct SpacesCommand : Module {
 		configButton(SCENE_A_PARAM, "Focus Scene A");
 		configButton(SCENE_B_PARAM, "Focus Scene B");
 		configParam(MORPH_PARAM, 0.f, 1.f, 0.f, "Scene morph", "%", 0, 100);
+		configButton(AUTO_MODE_PARAM, "AUTO mode (one-off / ping-pong / random walk / roam)");
+		configButton(AUTO_SPEED_PARAM, "AUTO speed (off / very slow ... fast); in one-off mode each press with speed on starts the next trip");
 		configSwitch(LATCH_PARAM, 0.f, 1.f, 0.f, "Latch (holds the last note fed into V/OCT+GATE after release)", {"Off", "On"});
 		configSwitch(ARPSEQ_PARAM, 0.f, 1.f, 0.f, "Arp (cycles held/latched notes) / Seq (fixed root+scale pattern, runs on its own)", {"Arp", "Seq"});
 		configSwitch(STRUM_PARAM, 0.f, 1.f, 0.f, "Strum (rolls a HARMONY chord's tones one at a time within the step's gate window, instead of only the root)", {"Off", "On"});
@@ -286,6 +314,8 @@ struct SpacesCommand : Module {
 		// reverted to construction defaults on every reload, and the
 		// SCENE A/B focus light could show the wrong one entirely.
 		json_object_set_new(rootJ, "focusB", json_boolean(focusB));
+		json_object_set_new(rootJ, "autoMode", json_integer(autoMode));
+		json_object_set_new(rootJ, "autoSpeed", json_integer(autoSpeed));
 		auto sceneToJson = [](const SceneState& s) {
 			json_t* sJ = json_object();
 			json_t* fJ = json_array();
@@ -316,6 +346,10 @@ struct SpacesCommand : Module {
 		if (freezeJ) freezeOnState = json_boolean_value(freezeJ);
 		json_t* routingJ = json_object_get(rootJ, "routingState");
 		if (routingJ) routingState = clamp((int)json_integer_value(routingJ), 0, 1);
+		json_t* autoModeJ = json_object_get(rootJ, "autoMode");
+		if (autoModeJ) autoMode = clamp((int)json_integer_value(autoModeJ), 0, 3);
+		json_t* autoSpeedJ = json_object_get(rootJ, "autoSpeed");
+		if (autoSpeedJ) autoSpeed = clamp((int)json_integer_value(autoSpeedJ), 0, 4);
 		json_t* focusBJ = json_object_get(rootJ, "focusB");
 		if (focusBJ) focusB = json_boolean_value(focusBJ);
 		auto sceneFromJson = [](json_t* sJ, SceneState& s) {
@@ -353,6 +387,114 @@ struct SpacesCommand : Module {
 		lights[STRUM_LIGHT].setBrightness(strumOnState ? 1.f : 0.f);
 		lights[FREEZE_LIGHT].setBrightness(freezeOnState ? 1.f : 0.f);
 		lights[ROUTING_LIGHT].setBrightness(routingState ? 1.f : 0.f);
+
+		// ---- AUTO (scene crossfade automation) -- see field comments ----
+		{
+			bool modePressed = autoModeTrig.process(params[AUTO_MODE_PARAM].getValue());
+			bool speedPressed = autoSpeedTrig.process(params[AUTO_SPEED_PARAM].getValue());
+			float posNow = params[MORPH_PARAM].getValue();
+			auto autoReseed = [&]() {
+				autoSegTimer = 0.f; autoVelCur = 0.f; autoRoamT = 1.f; autoRoamHold = 0.f; autoDwell = 0.f;
+				autoDir = (posNow < 0.5f) ? -1.f : 1.f;           // ping-pong: first leg heads for the nearest end
+			};
+			auto startTrip = [&]() {
+				// nearest end; if already parked at an end, the OTHER one
+				if (posNow < 0.01f) autoTarget = 1.f;
+				else if (posNow > 0.99f) autoTarget = 0.f;
+				else autoTarget = (posNow < 0.5f) ? 0.f : 1.f;
+				autoTripActive = true;
+			};
+			if (modePressed) { autoMode = (autoMode + 1) % 4; autoReseed(); if (autoMode == 0 && autoSpeed > 0) startTrip(); }
+			if (speedPressed) {
+				int prev = autoSpeed;
+				autoSpeed = (autoSpeed + 1) % 5;
+				if (autoSpeed > 0) {
+					if (prev == 0) autoReseed();
+					if (autoMode == 0) startTrip();   // ONE-OFF: every press with speed on launches the next trip
+				} else {
+					autoTripActive = false;
+				}
+			}
+			lights[AUTO_SPEED_LIGHT].setBrightness(autoSpeed / 4.f);
+
+			if (autoSpeed > 0 && !freezeOnState) {
+				float dt = args.sampleTime;
+				// hand wins: any change we didn't write ourselves pauses AUTO briefly
+				if (autoLastWritten >= 0.f && std::fabs(posNow - autoLastWritten) > 1e-6f) {
+					autoHold = 0.4f;
+					autoSegTimer = 0.f; autoVelCur = 0.f; autoRoamT = 1.f; autoRoamHold = 0.f;
+				}
+				if (autoHold > 0.f) {
+					autoHold -= dt;
+					autoLastWritten = posNow;
+					autoAcc = posNow;   // carry on from wherever the hand left it
+				} else {
+					float trip = kAutoTripSec[autoSpeed];
+					double unit = (double)dt / trip;   // distance per sample at "one full trip per trip"
+					// Keep position in a double so very slow trips don't stall on
+					// float rounding; re-adopt the param's value whenever it isn't
+					// the one we last wrote (first run, or the user moved it).
+					if (autoLastWritten < 0.f || autoHold > 0.f || std::fabs(posNow - autoLastWritten) > 1e-6f) autoAcc = posNow;
+					double pos = autoAcc;
+					switch (autoMode) {
+						default:
+						case 0: {   // ONE-OFF
+							if (autoTripActive) {
+								double step = (autoTarget > pos) ? unit : -unit;
+								pos += step;
+								if ((step > 0.f && pos >= autoTarget) || (step < 0.f && pos <= autoTarget)) {
+									pos = autoTarget;
+									autoTripActive = false;
+								}
+							}
+						} break;
+						case 1: {   // PING-PONG, short dwell at each end
+							if (autoDwell > 0.f) { autoDwell -= dt; break; }
+							pos += autoDir * unit;
+							if (pos >= 1.f) { pos = 1.f; autoDir = -1.f; autoDwell = std::max(0.15f, 0.03f * trip); }
+							else if (pos <= 0.f) { pos = 0.f; autoDir = 1.f; autoDwell = std::max(0.15f, 0.03f * trip); }
+						} break;
+						case 2: {   // WALK: random drift that lingers now and then
+							autoSegTimer -= dt;
+							if (autoSegTimer <= 0.f) {
+								autoSegTimer = trip * (0.03f + 0.09f * random::uniform());
+								if (random::uniform() < 0.30f) autoVel = 0.f;                       // linger
+								else autoVel = (random::uniform() < 0.5f ? -1.f : 1.f) * (0.25f + 0.65f * random::uniform()) / trip;
+							}
+							float tau = std::max(0.05f, trip * 0.01f);
+							autoVelCur += (autoVel - autoVelCur) * std::min(1.f, dt / tau);
+							pos += autoVelCur * dt;
+							if (pos < 0.f) { pos = -pos; autoVel = std::fabs(autoVel); autoVelCur = std::fabs(autoVelCur); }
+							if (pos > 1.f) { pos = 2.f - pos; autoVel = -std::fabs(autoVel); autoVelCur = -std::fabs(autoVelCur); }
+							pos = std::min(1.0, std::max(0.0, pos));
+						} break;
+						case 3: {   // ROAM: glide to random targets, favouring the 30-70% zone
+							if (autoRoamHold > 0.f) { autoRoamHold -= dt; break; }
+							if (autoRoamT >= 1.f) {
+								autoRoamFrom = pos;
+								autoTarget = (random::uniform() < 0.75f) ? 0.30f + 0.40f * random::uniform() : random::uniform();
+								autoRoamDur = std::max(0.5f, std::fabs(autoTarget - autoRoamFrom) * trip * 0.7f);
+								autoRoamT = 0.f;
+							}
+							autoRoamT += dt / autoRoamDur;
+							float t = std::min(1.f, autoRoamT);
+							float sm = t * t * (3.f - 2.f * t);
+							pos = autoRoamFrom + (autoTarget - autoRoamFrom) * sm;
+							if (autoRoamT >= 1.f) {
+								bool inZone = autoTarget >= 0.30f && autoTarget <= 0.70f;
+								autoRoamHold = trip * (0.03f + 0.07f * random::uniform()) * (inZone ? 2.f : 1.f);
+							}
+						} break;
+					}
+					pos = std::min(1.0, std::max(0.0, pos));
+					autoAcc = pos;
+					params[MORPH_PARAM].setValue((float)pos);
+					autoLastWritten = (float)pos;
+				}
+			} else {
+				autoLastWritten = -1.f;   // not driving MORPH: nothing to compare against
+			}
+		}
 
 		if (meloTrig.process(params[MELO_PARAM].getValue())) { randomizeMelo(); meloFlash = (int)std::round(args.sampleRate * kFlashSeconds); }
 		if (diceArtiTrig.process(params[DICE_ARTI].getValue())) { randomizeArti(); artiFlash = (int)std::round(args.sampleRate * kFlashSeconds); }
@@ -803,6 +945,8 @@ struct SpacesCommand : Module {
 };
 
 // =====================================================================
+constexpr float SpacesCommand::kAutoTripSec[5];
+
 // Custom horizontal crossfader handle -- a real fader CAP that slides
 // along the SCENE track, per explicit request that it must not be a
 // knob. Drag horizontally; position maps directly to MORPH_PARAM.
@@ -1330,6 +1474,120 @@ struct ModDepthArc : Widget {
 	}
 };
 
+// ---------------------------------------------------------------------
+// AUTO buttons (v6) -- small RATE-style buttons for scene-crossfade
+// automation. SPEED draws Intel's 4-segment fill bar (empty = off).
+// AUTO shows the current mode as a vector glyph: ONE-OFF = arrow to an
+// end bar, PING-PONG = double arrow, WALK = zigzag, ROAM = scattered
+// dots. Navy glyph while AUTO is actually running, dim otherwise.
+// ---------------------------------------------------------------------
+struct AutoSpeedButton : ParamWidget {
+	Module* mod = nullptr;
+	int lightId = -1;
+	NVGcolor color = nvgRGB(0x8A, 0x64, 0x23);   // brass, matches the panel guide
+	AutoSpeedButton() { box.size = mm2px(Vec(5.2f, 5.2f)); }
+	void onButton(const ButtonEvent& e) override {
+		ParamWidget::onButton(e);
+		if (e.button == GLFW_MOUSE_BUTTON_LEFT && e.action == GLFW_PRESS) {
+			if (ParamQuantity* pq = getParamQuantity()) pq->setValue(1.f);
+			e.consume(this);
+		}
+	}
+	void onDragEnd(const DragEndEvent& e) override {
+		ParamWidget::onDragEnd(e);
+		if (ParamQuantity* pq = getParamQuantity()) pq->setValue(0.f);
+	}
+	void draw(const DrawArgs& args) override {
+		float level = (mod && lightId >= 0) ? mod->lights[lightId].getBrightness() : 0.5f;
+		nvgBeginPath(args.vg);
+		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, mm2px(Vec(0.5, 0)).x);
+		nvgStrokeColor(args.vg, color);
+		nvgStrokeWidth(args.vg, mm2px(Vec(0.45, 0)).x);
+		nvgStroke(args.vg);
+		float inset = mm2px(Vec(0.5, 0)).x;
+		float fullH = box.size.y - 2.f * inset;
+		float fillH = fullH * clamp(level, 0.f, 1.f);
+		nvgBeginPath(args.vg);
+		nvgRect(args.vg, inset, box.size.y - inset - fillH, box.size.x - 2.f * inset, fillH);
+		nvgFillColor(args.vg, color);
+		nvgFill(args.vg);
+	}
+};
+
+struct AutoModeButton : ParamWidget {
+	SpacesCommand* mod = nullptr;
+	AutoModeButton() { box.size = mm2px(Vec(5.2f, 5.2f)); }
+	void onButton(const ButtonEvent& e) override {
+		ParamWidget::onButton(e);
+		if (e.button == GLFW_MOUSE_BUTTON_LEFT && e.action == GLFW_PRESS) {
+			if (ParamQuantity* pq = getParamQuantity()) pq->setValue(1.f);
+			e.consume(this);
+		}
+	}
+	void onDragEnd(const DragEndEvent& e) override {
+		ParamWidget::onDragEnd(e);
+		if (ParamQuantity* pq = getParamQuantity()) pq->setValue(0.f);
+	}
+	void draw(const DrawArgs& args) override {
+		int m = mod ? mod->autoMode : 0;
+		bool running = mod && mod->autoSpeed > 0 && !mod->freezeOnState;
+		NVGcolor navy = nvgRGB(0x2E, 0x4A, 0x6E);
+		NVGcolor col = running ? navy : nvgRGB(0x7A, 0x73, 0x66);
+		float w = box.size.x, h = box.size.y;
+		float u = mm2px(Vec(1.f, 0)).x;
+		nvgBeginPath(args.vg);
+		nvgRoundedRect(args.vg, 0.f, 0.f, w, h, mm2px(Vec(0.5, 0)).x);
+		nvgFillColor(args.vg, nvgRGB(0xED, 0xE7, 0xDC));
+		nvgFill(args.vg);
+		nvgStrokeColor(args.vg, navy);
+		nvgStrokeWidth(args.vg, mm2px(Vec(0.45, 0)).x);
+		nvgStroke(args.vg);
+		nvgStrokeColor(args.vg, col);
+		nvgFillColor(args.vg, col);
+		nvgStrokeWidth(args.vg, mm2px(Vec(0.38, 0)).x);
+		nvgLineCap(args.vg, NVG_ROUND);
+		nvgLineJoin(args.vg, NVG_ROUND);
+		auto arrowHead = [&](float tipX, float cy, float dir) {
+			nvgBeginPath(args.vg);
+			nvgMoveTo(args.vg, tipX - dir * 0.9f * u, cy - 0.8f * u);
+			nvgLineTo(args.vg, tipX, cy);
+			nvgLineTo(args.vg, tipX - dir * 0.9f * u, cy + 0.8f * u);
+			nvgStroke(args.vg);
+		};
+		float cx = w / 2.f, cy = h / 2.f;
+		switch (m) {
+			default:
+			case 0: {   // ONE-OFF: arrow to a stop bar
+				nvgBeginPath(args.vg); nvgMoveTo(args.vg, cx - 1.7f * u, cy); nvgLineTo(args.vg, cx + 1.3f * u, cy); nvgStroke(args.vg);
+				arrowHead(cx + 1.3f * u, cy, 1.f);
+				nvgBeginPath(args.vg); nvgMoveTo(args.vg, cx + 1.9f * u, cy - 1.1f * u); nvgLineTo(args.vg, cx + 1.9f * u, cy + 1.1f * u); nvgStroke(args.vg);
+			} break;
+			case 1: {   // PING-PONG: double-headed arrow
+				nvgBeginPath(args.vg); nvgMoveTo(args.vg, cx - 1.8f * u, cy); nvgLineTo(args.vg, cx + 1.8f * u, cy); nvgStroke(args.vg);
+				arrowHead(cx + 1.8f * u, cy, 1.f);
+				arrowHead(cx - 1.8f * u, cy, -1.f);
+			} break;
+			case 2: {   // WALK: zigzag
+				nvgBeginPath(args.vg);
+				nvgMoveTo(args.vg, cx - 2.0f * u, cy + 0.6f * u);
+				nvgLineTo(args.vg, cx - 1.0f * u, cy - 0.9f * u);
+				nvgLineTo(args.vg, cx - 0.1f * u, cy + 0.8f * u);
+				nvgLineTo(args.vg, cx + 0.8f * u, cy - 0.5f * u);
+				nvgLineTo(args.vg, cx + 2.0f * u, cy + 0.3f * u);
+				nvgStroke(args.vg);
+			} break;
+			case 3: {   // ROAM: scattered dots, denser in the middle
+				const float pts[5][2] = {{-1.8f, 0.9f}, {-0.6f, -0.7f}, {0.2f, 0.3f}, {1.0f, -0.9f}, {1.9f, 0.7f}};
+				for (int i = 0; i < 5; i++) {
+					nvgBeginPath(args.vg);
+					nvgCircle(args.vg, cx + pts[i][0] * u, cy + pts[i][1] * u, 0.38f * u);
+					nvgFill(args.vg);
+				}
+			} break;
+		}
+	}
+};
+
 struct SpacesCommandWidget : ModuleWidget {
 	SpacesCommandWidget(SpacesCommand* module) {
 		setModule(module);
@@ -1467,7 +1725,7 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(btnA);
 		}
 		{
-			auto* btnB = createParamCentered<SquareButton>(mm2px(Vec(111.24, 70.54)), module, SpacesCommand::SCENE_B_PARAM);
+			auto* btnB = createParamCentered<SquareButton>(mm2px(Vec(85.57, 70.54)), module, SpacesCommand::SCENE_B_PARAM);
 			btnB->mod = module;
 			btnB->lightId = SpacesCommand::SCENE_B_LIGHT;
 			btnB->litColor = nvgRGB(0xE0, 0x40, 0x40);
@@ -1477,22 +1735,33 @@ struct SpacesCommandWidget : ModuleWidget {
 			addParam(btnB);
 		}
 		{
-			auto* xfHandle = createParamCentered<HCrossfaderHandle>(mm2px(Vec((30.75+100.49)/2.f, 70.54)), module, SpacesCommand::MORPH_PARAM);
+			auto* xfHandle = createParamCentered<HCrossfaderHandle>(mm2px(Vec((30.75+74.82)/2.f, 70.54)), module, SpacesCommand::MORPH_PARAM);
 			// Inset by half the cap's own width (9.0mm / 2 = 4.5mm) at each
 			// end, same fix as the vertical faders -- otherwise the cap
 			// overshoots the drawn track by half its own size at the
 			// extremes, since its position is centered on these bounds.
 			xfHandle->trackX0Px = mm2px(Vec(35.25, 0)).x;
-			xfHandle->trackX1Px = mm2px(Vec(95.99, 0)).x;
+			xfHandle->trackX1Px = mm2px(Vec(70.32, 0)).x;   // = track end 74.82 - half the 9mm cap
 			xfHandle->centerY = mm2px(Vec(0, 70.54)).y;
 			addParam(xfHandle);
 		}
+		// AUTO (mode glyph) + SPEED (4-segment gauge): positions from the
+		// layout script (command_layout.json "crossfader").
+		{
+			auto* autoMode = createParamCentered<AutoModeButton>(mm2px(Vec(97.82, 69.34)), module, SpacesCommand::AUTO_MODE_PARAM);
+			autoMode->mod = module;
+			addParam(autoMode);
+			auto* autoSpeed = createParamCentered<AutoSpeedButton>(mm2px(Vec(107.02, 69.34)), module, SpacesCommand::AUTO_SPEED_PARAM);
+			autoSpeed->mod = module;
+			autoSpeed->lightId = SpacesCommand::AUTO_SPEED_LIGHT;
+			addParam(autoSpeed);
+		}
 
 		// KEY: genuinely smaller stock component (Trimpot)
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(140.74, 69.04)), module, SpacesCommand::ROOT_KEY_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(154.18, 69.04)), module, SpacesCommand::SCALE_TYPE_PARAM));
-		addParam(createParamCentered<Trimpot>(mm2px(Vec(167.61, 69.04)), module, SpacesCommand::DENSITY_PARAM));
-		addDepthArc(167.61, 69.04, 4.109f, 1, nvgRGB(0x8A, 0x2A, 0x2A));  // dens -- maroon
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(137.12, 69.04)), module, SpacesCommand::ROOT_KEY_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(151.76, 69.04)), module, SpacesCommand::SCALE_TYPE_PARAM));
+		addParam(createParamCentered<Trimpot>(mm2px(Vec(166.40, 69.04)), module, SpacesCommand::DENSITY_PARAM));
+		addDepthArc(166.40, 69.04, 4.109f, 1, nvgRGB(0x8A, 0x2A, 0x2A));  // dens -- maroon
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(181.04, 69.04)), module, SpacesCommand::SWING_PARAM));
 		addDepthArc(181.04, 69.04, 4.109f, 2, nvgRGB(0x2E, 0x4A, 0x6E));  // swing -- navy
 

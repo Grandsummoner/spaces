@@ -160,7 +160,7 @@ section("controls", x0 + feel_w + GAP, y, ctrl_w, row_fc_h, "CONTROLS")
 y += row_fc_h + GAP
 
 row_sk_h = row_height(R["bezel"])
-scene_w = full_w * 0.62
+scene_w = feel_w          # (v6) Scene box now matches FEEL width exactly
 key_w = full_w - scene_w - GAP
 section("crossfader", x0, y, scene_w, row_sk_h, "SCENE")
 section("key", x0 + scene_w + GAP, y, key_w, row_sk_h, "KEY")
@@ -246,12 +246,20 @@ for i, nm in enumerate(mode_names):
     micro(nm, cx, label_y_ctrl, size=1.4)
     layout["controls"].append({"x": round(cx,2), "y": round(ctrl_y,2), "param": mode_param_map[nm], "light": mode_light_map[nm], "name": nm})
 
-# ---- SCENE: A/B focus + crossfader only (mode toggles moved to CONTROLS) ----
+# ---- SCENE: A/B focus + crossfader + AUTO (v6) ----
+# Right-hand cluster: two small RATE-style buttons (AUTO = mode glyph,
+# SPEED = 4-segment fill gauge) separated from the fader by a divider.
 cx0, cy0, cw0, ch0, _ = sections["crossfader"]
-ctrl_y2 = cy0 + ch0 / 2   # no label reserved in this row anymore -- just center in the full box
+ctrl_y2 = cy0 + ch0 / 2   # centre of the row (buttons' labels hang below it)
+AUTO_BTN = 5.2            # button side, mm (RATE button on Intel is 4.6; a touch bigger for the glyphs)
+AUTO_GAP = 4.0            # between the two buttons
+AUTO_PAD_R = 5.0          # clearance to the box's right edge
+auto_speed_x = cx0 + cw0 - AUTO_PAD_R - AUTO_BTN/2
+auto_mode_x = auto_speed_x - AUTO_BTN - AUTO_GAP
+auto_div_x = auto_mode_x - AUTO_BTN/2 - 3.2
 a_x = cx0 + 7
-b_x = cx0 + cw0 - 7
 button_half_w = 3.25   # actual SquareButton half-size (6.5mm)
+b_x = auto_div_x - 3.2 - button_half_w
 handle_half_w = 4.5    # crossfader handle half-width (9mm)
 visual_gap = 3.0        # explicit breathing room requested
 track_x0 = a_x + button_half_w + handle_half_w + visual_gap
@@ -260,8 +268,18 @@ grad_id = "xfgrad"
 svg.insert(3, f'<linearGradient id="{grad_id}" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="{AMBER}" stop-opacity="0.30"/><stop offset="100%" stop-color="{MAROON}" stop-opacity="0.30"/></linearGradient>')
 add(f'<rect x="{track_x0}" y="{ctrl_y2-R["track_half"]}" width="{track_x1-track_x0}" height="{R["track_half"]*2}" rx="{R["track_half"]}" fill="url(#{grad_id})"/>')
 add(f'<rect x="{track_x0}" y="{ctrl_y2-R["track_half"]}" width="{track_x1-track_x0}" height="{R["track_half"]*2}" rx="{R["track_half"]}" fill="none" stroke="{TEXT_DIM}" stroke-width="0.3"/>')
+# divider + AUTO button guides + labels
+add(f'<line x1="{auto_div_x:.3f}" y1="{cy0+2.4:.3f}" x2="{auto_div_x:.3f}" y2="{cy0+ch0-2.4:.3f}" stroke="{BORDER}" stroke-width="0.3" stroke-opacity="0.5"/>')
+btn_top = ctrl_y2 - (AUTO_BTN + 1.0 + 1.0)/2 - 0.2   # button + gap + label cap, centred as a block
+auto_btn_y = btn_top + AUTO_BTN/2
+auto_label_y = btn_top + AUTO_BTN + 1.0 + 1.0
+for bx, nm, colr in ((auto_mode_x, "AUTO", NAVY), (auto_speed_x, "SPEED", BRASS)):
+    add(f'<rect x="{bx-AUTO_BTN/2:.3f}" y="{auto_btn_y-AUTO_BTN/2:.3f}" width="{AUTO_BTN}" height="{AUTO_BTN}" rx="0.5" fill="none" stroke="{colr}" stroke-width="0.45" opacity="0.6"/>')
+    micro(nm, bx, auto_label_y, size=1.4)
 layout["crossfader"] = {"a_x": round(a_x,2), "b_x": round(b_x,2), "track_x0": round(track_x0,2),
-                          "track_x1": round(track_x1,2), "y": round(ctrl_y2,2)}
+                          "track_x1": round(track_x1,2), "y": round(ctrl_y2,2),
+                          "auto_mode_x": round(auto_mode_x,2), "auto_speed_x": round(auto_speed_x,2),
+                          "auto_y": round(auto_btn_y,2), "auto_size": AUTO_BTN}
 
 # ---- KEY ----
 kx0, ky0, kw0, kh0, _ = sections["key"]

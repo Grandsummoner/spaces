@@ -51,10 +51,14 @@
   ],
   "crossfader": {
     "a_x": 20.0,
-    "b_x": 111.24,
+    "b_x": 85.57,
     "track_x0": 30.75,
-    "track_x1": 100.49,
-    "y": 70.54
+    "track_x1": 74.82,
+    "y": 70.54,
+    "auto_mode_x": 97.82,
+    "auto_speed_x": 107.02,
+    "auto_y": 69.34,
+    "auto_size": 5.2
   },
   "controls": [
     {
@@ -95,19 +99,19 @@
   ],
   "key": [
     {
-      "x": 140.74,
+      "x": 137.12,
       "y": 69.04,
       "param": "ROOT_KEY_PARAM",
       "size": "small"
     },
     {
-      "x": 154.18,
+      "x": 151.76,
       "y": 69.04,
       "param": "SCALE_TYPE_PARAM",
       "size": "small"
     },
     {
-      "x": 167.61,
+      "x": 166.4,
       "y": 69.04,
       "param": "DENSITY_PARAM",
       "size": "small"
