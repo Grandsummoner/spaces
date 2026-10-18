@@ -197,6 +197,12 @@ struct SpacesCommand : Module {
 		configSwitch(STRUM_PARAM, 0.f, 1.f, 0.f, "Strum (rolls a HARMONY chord's tones one at a time within the step's gate window, instead of only the root)", {"Off", "On"});
 		configSwitch(FREEZE_PARAM, 0.f, 1.f, 0.f, "Freeze (snapshots the pattern and keeps playing it regardless of knob/note changes)", {"Off", "On"});
 		configSwitch(ROUTING_PARAM, 0.f, 1.f, 0.f, "Routing", {"Blend", "Split"});
+		// Right-click Randomize must never touch the toggles/buttons: their
+		// on/off state is kept INSIDE the module and flipped by a rising edge
+		// on the param, so a randomized switch param silently flipped LATCH /
+		// ARP-SEQ / STRUM / FREEZE / ROUTING (and a flipped FREEZE also pauses AUTO).
+		for (int id : {LATCH_PARAM, ARPSEQ_PARAM, STRUM_PARAM, FREEZE_PARAM, ROUTING_PARAM})
+			paramQuantities[id]->randomizeEnabled = false;
 		configParam(REST_PARAM, 0.f, 1.f, 0.1f, "Rest probability", "%", 0, 100);
 		configButton(DICE_ARTI, "Randomize Rest+Legato (ARTI)");
 		configParam(LEGATO_PARAM, 0.f, 1.f, 0.5f, "Legato", "%", 0, 100);
@@ -270,6 +276,21 @@ struct SpacesCommand : Module {
 	void applyOctaveBias(int dir) {
 		SceneState& unfocused = focusB ? sceneA : sceneB;
 		unfocused.octaves = clamp(unfocused.octaves + (float)dir, -3.f, 3.f);
+	}
+
+	// Right-click "Initialize": Rack resets the params, but the toggle states,
+	// scene snapshots and AUTO state live in the module -- reset those too so
+	// Initialize really returns to a clean start.
+	void onReset() override {
+		latchOnState = arpSeqOnState = strumOnState = freezeOnState = false;
+		routingState = 0;
+		focusB = false;
+		sceneA = SceneState();
+		sceneB = SceneState();
+		autoMode = 0; autoSpeed = 0;
+		autoTripActive = false; autoLastWritten = -1.f; autoHold = 0.f; autoDwell = 0.f;
+		autoSegTimer = 0.f; autoVelCur = 0.f; autoRoamT = 1.f; autoRoamHold = 0.f;
+		latchedNotes.clear(); latchedVelocities.clear();
 	}
 
 	void randomizeMelo() {
@@ -1530,7 +1551,9 @@ struct AutoModeButton : ParamWidget {
 	}
 	void draw(const DrawArgs& args) override {
 		int m = mod ? mod->autoMode : 0;
-		bool running = mod && mod->autoSpeed > 0 && !mod->freezeOnState;
+		// navy = AUTO is actually driving the fader (or deliberately lingering);
+		// grey = off, frozen, or ONE-OFF parked at an end waiting for the next SPEED press
+		bool running = mod && mod->autoSpeed > 0 && !mod->freezeOnState && !(mod->autoMode == 0 && !mod->autoTripActive);
 		NVGcolor navy = nvgRGB(0x2E, 0x4A, 0x6E);
 		NVGcolor col = running ? navy : nvgRGB(0x7A, 0x73, 0x66);
 		float w = box.size.x, h = box.size.y;
