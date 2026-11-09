@@ -542,20 +542,19 @@ struct SpacesCommand : Module {
 		// Stellar's own check for Command. No message exchange
 		// implemented on either side yet, so this is intentionally just
 		// a presence light, not a functional data link.
-		auto isStellar = [](Module* m) {
-			return m && m->model && m->model->plugin && m->model->plugin->slug == "Stellar" && m->model->slug == "Stellar";
+		// Universal Grandsummoner family adjacency detection
+		auto isFamilyModule = [](Module* m) {
+			if (!m || !m->model) return false;
+			std::string pSlug = (m->model->plugin) ? m->model->plugin->slug : "";
+			std::string mSlug = m->model->slug;
+			auto match = [&](const std::string& name) {
+				return mSlug == name || pSlug == name || 
+				       mSlug == "Grandsummoner-" + name || pSlug == "Grandsummoner-" + name;
+			};
+			return match("SpacesCommand") || match("Intel") || match("Beams") || match("Stellar") || match("Explorer");
 		};
-		auto isIntel = [](Module* m) {
-			return m && m->model && m->model->plugin && m->model->plugin->slug == "Intel" && m->model->slug == "Intel";
-		};
-		// Beams: light-only, same as Stellar above -- Command has no
-		// functional link to Beams (Beams only talks to Intel), this
-		// just recognizes it as a family member sitting adjacent.
-		auto isBeams = [](Module* m) {
-			return m && m->model && m->model->plugin && m->model->plugin->slug == "Beams" && m->model->slug == "Beams";
-		};
-		lights[LINK_LEFT_LIGHT].setBrightness(isStellar(leftExpander.module) || isIntel(leftExpander.module) || isBeams(leftExpander.module) ? 1.f : 0.f);
-		lights[LINK_RIGHT_LIGHT].setBrightness(isStellar(rightExpander.module) || isIntel(rightExpander.module) || isBeams(rightExpander.module) ? 1.f : 0.f);
+		lights[LINK_LEFT_LIGHT].setBrightness(isFamilyModule(leftExpander.module) ? 1.f : 0.f);
+		lights[LINK_RIGHT_LIGHT].setBrightness(isFamilyModule(rightExpander.module) ? 1.f : 0.f);
 
 		// Intel link: Intel writes modulation offsets directly into
 		// whichever of our own producer buffers faces it, then flags our

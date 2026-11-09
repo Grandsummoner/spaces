@@ -62,9 +62,16 @@ struct IntelModMessage {
 // repos' copies of this file.
 inline rack::engine::Module* intelLinkFind(rack::engine::Module* self, bool right, const char* slug) {
 	rack::engine::Module* m = right ? self->rightExpander.module : self->leftExpander.module;
+	std::string targetSlug = slug ? slug : "";
 	for (int hops = 0; m && hops < 32; hops++) {
-		if (m->model && m->model->plugin && m->model->plugin->slug == slug && m->model->slug == slug)
-			return m;
+		if (m->model) {
+			std::string mSlug = m->model->slug;
+			std::string pSlug = (m->model->plugin) ? m->model->plugin->slug : "";
+			if (mSlug == targetSlug || pSlug == targetSlug || 
+			    mSlug == "Grandsummoner-" + targetSlug || pSlug == "Grandsummoner-" + targetSlug) {
+				return m;
+			}
+		}
 		m = right ? m->rightExpander.module : m->leftExpander.module;
 	}
 	return nullptr;

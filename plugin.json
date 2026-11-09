@@ -1,9 +1,11 @@
 {
   "slug": "SpacesCommand",
   "name": "Spaces Command",
+  "brand": "Grandsummoner",
   "version": "2.0.0",
   "license": "GPL-3.0-or-later",
   "author": "Grandsummoner",
+  "authorEmail": "percivale09@gmail.com",
   "authorUrl": "https://github.com/Grandsummoner",
   "pluginUrl": "https://github.com/Grandsummoner/spaces",
   "sourceUrl": "https://github.com/Grandsummoner/spaces",
@@ -11,8 +13,13 @@
     {
       "slug": "SpacesCommand",
       "name": "Spaces Command",
-      "description": "Dual-scene probabilistic CV/gate arpeggiator/sequencer with two independent Pitch+Gate voice outputs. Pure sequencing -- no built-in audio engine.",
-      "tags": ["Sequencer", "Random"]
+      "description": "38 HP dual-scene probabilistic CV/gate arpeggiator/sequencer with two independent Pitch+Gate voice outputs. Pure sequencing -- no built-in audio engine. Lights up when linked adjacent to Intel, Stellar, Beams, or Explorer.",
+      "tags": [
+        "Sequencer",
+        "Random",
+        "Arpeggiator",
+        "Polyphonic"
+      ]
     }
   ]
 }
